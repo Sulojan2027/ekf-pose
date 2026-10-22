@@ -1,0 +1,9 @@
+torch>=2.0
+ultralytics>=8.4
+numpy
+scipy
+opencv-python
+matplotlib
+pandas
+tqdm
+pytest

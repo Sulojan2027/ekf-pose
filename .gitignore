@@ -1,0 +1,9 @@
+data/
+results/
+runs/
+weights/
+*.pt
+__pycache__/
+.ipynb_checkpoints/
+*.txt.token
+HF_TOKEN*
