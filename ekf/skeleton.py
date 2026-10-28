@@ -210,12 +210,11 @@ def jacobian(x: np.ndarray) -> np.ndarray:
 # ----------------------------------------------------------------------------
 def clamp_lengths(x: np.ndarray) -> np.ndarray:
     """Return a copy of x with widths >= MIN_WIDTH and other lengths >= MIN_LENGTH."""
-    # TODO: x = x.copy(); clip x[LENGTHS] at MIN_LENGTH, then set the two WIDTHS
-    #       entries with max(MIN_WIDTH, value) (widths are allowed to be small).
-    #       Careful: do the widths from the ORIGINAL values, not after the 5 px clip.
     x = x.copy()
-    x[LENGTHS] = np.maximum()
-
+    widths = x[list(WIDTHS)].copy()
+    x[LENGTHS] = np.maximum(x[LENGTHS], MIN_LENGTH)
+    x[list(WIDTHS)] = np.maximum(widths, MIN_WIDTH)
+    return x
 
 def wrap_angles(x: np.ndarray) -> np.ndarray:
     """Return a copy of x with the 9 absolute angles wrapped to (-pi, pi]."""
@@ -235,6 +234,7 @@ def apply_joint_limits(x: np.ndarray) -> np.ndarray:
     i.e. move only the DISTAL segment back onto the limit, keep its sign.
     This is a projection of the estimate onto the feasible set (P is left as is).
     """
+    x = x.copy()
     for prox, dist, limit in [
         (ANG_THIGH_L, ANG_SHANK_L, KNEE_LIMIT),
         (ANG_THIGH_R, ANG_SHANK_R, KNEE_LIMIT),
@@ -258,7 +258,6 @@ def flexion_angles(th_torso, th_thigh, th_shank) -> tuple[np.ndarray, np.ndarray
     Sign-agnostic, so left- and right-facing clips give the same numbers.
     Inputs: arrays of the same shape (or scalars). Outputs: same shape.
     """
-    # TODO: two lines, using wrap().
     knee = np.abs(wrap(th_thigh - th_shank))
     hip = np.pi - np.abs(wrap(th_torso - th_thigh))
     return knee, hip
@@ -295,7 +294,62 @@ def init_from_keypoints(kp: np.ndarray, ok: np.ndarray):
     Tip: a table [(ANG_x, LEN_x, prox_kp, dist_kp), ...] for the 8 limb segments
          keeps step 4 short.
     """
+    # 1. usable hips and shoulders
     hips = [kp[j] for j in (L_HIP, R_HIP) if ok[j]]
+    shoulders = [kp[j] for j in (L_SH, R_SH) if ok[j]]
+    if not hips or not shoulders:
+        return None
+
+    x0 = np.zeros(N_X)
+
+    # 2. root and torso
+    p0 = np.mean(hips, axis=0)
+    mid_sh = np.mean(shoulders, axis=0)
+    theta_t = seg_angle(p0, mid_sh)
+    L_t = np.linalg.norm(mid_sh - p0)
+    x0[P0] = p0
+    x0[ANG_TORSO] = theta_t
+    x0[LEN_TORSO] = L_t
+
+    # 3. widths: signed projection onto the torso normal u_perp(theta_t)
+    n_perp = seg_dir(theta_t, True)[0]
+    if ok[L_SH] and ok[R_SH]:
+        x0[LEN_SHW] = np.dot(kp[L_SH] - mid_sh, n_perp)
+    else:
+        x0[LEN_SHW] = DEFAULT_RATIO[LEN_SHW] * L_t
+    if ok[L_HIP] and ok[R_HIP]:
+        x0[LEN_HIPW] = np.dot(kp[L_HIP] - p0, n_perp)
+    else:
+        x0[LEN_HIPW] = DEFAULT_RATIO[LEN_HIPW] * L_t
+
+    # 4. limbs, grouped by segment type so the L/R fallback is easy
+    LIMBS = [  # (length idx, (angle L, prox L, dist L), (angle R, prox R, dist R))
+        (LEN_UARM,  (ANG_UARM_L,  L_SH,  L_EL), (ANG_UARM_R,  R_SH,  R_EL)),
+        (LEN_FARM,  (ANG_FARM_L,  L_EL,  L_WR), (ANG_FARM_R,  R_EL,  R_WR)),
+        (LEN_THIGH, (ANG_THIGH_L, L_HIP, L_KN), (ANG_THIGH_R, R_HIP, R_KN)),
+        (LEN_SHANK, (ANG_SHANK_L, L_KN,  L_AN), (ANG_SHANK_R, R_KN,  R_AN)),
+    ]
+    for l, *sides in LIMBS:
+        angles, lengths = {}, []           # measured angle per angle idx, measured lengths
+        for (a, i, k) in sides:
+            if ok[i] and ok[k]:
+                angles[a] = seg_angle(kp[i], kp[k])
+                lengths.append(np.linalg.norm(kp[k]- kp[i]))
+        x0[l] = np.mean(lengths) if lengths else DEFAULT_RATIO[l] * L_t
+
+        # angle: own measurement -> other side's measurement -> hanging (+pi/2)
+        fallback = next(iter(angles.values()), np.pi / 2)
+        for (a, _, _) in sides:
+            x0[a] = angles.get(a, fallback)
+
+    # 5. velocities stay 0 (x0 started as zeros)
+    # 6. initial covariance (named P_init: P0 is already the root-position slice!)
+    std = np.concatenate([np.full(2, P0_STD_POS), np.full(9, P0_STD_ANG), np.full(2, P0_STD_VPOS),
+                          np.full(9, P0_STD_VANG), np.full(7, P0_STD_LEN)])
+    P_init = np.diag(std ** 2)
+
+    # 7.
+    return clamp_lengths(wrap_angles(x0)), P_init
 
 def split_coco(kp17: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """(..., 17, 3) YOLO/COCO keypoints -> (..., 12, 2) positions, (..., 12) conf.   [glue]"""

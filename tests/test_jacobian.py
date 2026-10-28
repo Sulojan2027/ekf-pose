@@ -42,10 +42,15 @@ def numerical_jacobian(f, x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
     Column k:  (f(x + eps e_k) - f(x - eps e_k)) / (2 eps)     error O(eps^2)
     Returns (len(f(x)), len(x)).
     """
-    # TODO: loop over k, perturb a COPY of x in both directions, stack the columns
-    #       (np.column_stack or fill a preallocated array).
-    raise NotImplementedError
-
+    f0 = f(x)
+    J = np.zeros((len(f0), len(x)))
+    for k in range(len(x)):
+        xp = x.copy()
+        xp[k] += eps
+        xn = x.copy()
+        xn[k] -= eps
+        J[:, k] = (f(xp) - f(xn)) / (2 * eps)
+    return J
 
 @pytest.mark.parametrize("seed", range(20))
 def test_jacobian_matches_finite_differences(seed):
