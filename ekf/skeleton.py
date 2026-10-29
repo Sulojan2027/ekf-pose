@@ -323,7 +323,7 @@ def init_from_keypoints(kp: np.ndarray, ok: np.ndarray):
         x0[LEN_HIPW] = DEFAULT_RATIO[LEN_HIPW] * L_t
 
     # 4. limbs, grouped by segment type so the L/R fallback is easy
-    LIMBS = [  # (length idx, (angle L, prox L, dist L), (angle R, prox R, dist R))
+    LIMBS = [
         (LEN_UARM,  (ANG_UARM_L,  L_SH,  L_EL), (ANG_UARM_R,  R_SH,  R_EL)),
         (LEN_FARM,  (ANG_FARM_L,  L_EL,  L_WR), (ANG_FARM_R,  R_EL,  R_WR)),
         (LEN_THIGH, (ANG_THIGH_L, L_HIP, L_KN), (ANG_THIGH_R, R_HIP, R_KN)),
@@ -342,13 +342,10 @@ def init_from_keypoints(kp: np.ndarray, ok: np.ndarray):
         for (a, _, _) in sides:
             x0[a] = angles.get(a, fallback)
 
-    # 5. velocities stay 0 (x0 started as zeros)
-    # 6. initial covariance (named P_init: P0 is already the root-position slice!)
     std = np.concatenate([np.full(2, P0_STD_POS), np.full(9, P0_STD_ANG), np.full(2, P0_STD_VPOS),
                           np.full(9, P0_STD_VANG), np.full(7, P0_STD_LEN)])
     P_init = np.diag(std ** 2)
 
-    # 7.
     return clamp_lengths(wrap_angles(x0)), P_init
 
 def split_coco(kp17: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

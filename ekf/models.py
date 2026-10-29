@@ -63,8 +63,8 @@ def make_Q(p: EKFParams) -> np.ndarray:
         Q: (29, 29), symmetric PSD.
     """
     dt = p.dt
-    Q = np.eye(sk.N_X)
-    G = [[dt**4/4, dt**3/2], [dt**3/2, dt**2]]
+    Q = np.zeros((sk.N_X, sk.N_X))
+    G = np.array([[dt**4/4, dt**3/2], [dt**3/2, dt**2]])
     for i in range(sk.VEL_OFFSET):
         idx = [i, i + sk.VEL_OFFSET]
         sigma = p.sigma_a if i in (0, 1) else p.sigma_alpha
@@ -83,7 +83,8 @@ def measurement_std(conf: np.ndarray, p: EKFParams) -> np.ndarray:
         sigma: (12,)   sigma_j = sigma0 * sqrt(1 + alpha * (1 - c_j))   if p.adaptive_R
                        sigma_j = sigma0                                 otherwise
     """
-    sigma = np.zeros_like(conf)
+    conf = np.clip(np.asarray(conf, dtype=float), 0.0, 1.0)
+    sigma = np.zeros(len(conf))
     for idx, c in enumerate(conf):
         sigma[idx] = p.sigma0 * np.sqrt(1 + p.alpha * (1 - c)) if p.adaptive_R else p.sigma0
     return sigma
