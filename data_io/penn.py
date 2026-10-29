@@ -15,6 +15,13 @@ Penn joints 1..12 == COCO keypoints 5..16 (same order).
 
 Invisible joints carry junk coordinates: GT is only valid where vis is True.
 
+LEFT/RIGHT MIRROR FIX: Penn Action's "left"/"right" labels are the mirror of the
+COCO / YOLO convention. Checked on all 47 selected side-view squat clips (test + tune):
+swapping Penn L<->R lowers the GT-vs-YOLO keypoint error in 47/47 clips (median ~4x).
+load_labels() therefore swaps every L/R joint pair by default (mirror_lr=True), so
+"L_knee" means the same physical joint in GT, YOLO and the EKF. Report this in the
+Implementation section. (Only verified on side views; the project does not use others.)
+
 Usage (prints the selected clip lists and saves them as CSV):
   python -m data_io.penn
 """
@@ -41,6 +48,9 @@ LEG_CHAIN = {
     "R": [2, 8, 10, 12],
 }
 
+# Penn index permutation that swaps every left/right pair (head stays)
+LR_SWAP = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11]
+
 # Penn joints 1..12  <->  COCO keypoints 5..16
 PENN_BODY = slice(1, 13)
 COCO_BODY = slice(5, 17)
@@ -52,12 +62,13 @@ def clip_id(clip) -> str:
     return str(clip).zfill(4)
 
 
-def load_labels(clip, root: Path = PENN_ROOT) -> dict:
+def load_labels(clip, root: Path = PENN_ROOT, mirror_lr: bool = True) -> dict:
     """Load the Penn Action annotation of one clip.   [glue: filled in]
 
     Args:
         clip: clip id (any form accepted by clip_id()).
         root: Penn Action root containing labels/ and frames/.
+        mirror_lr: swap Penn's L/R joint labels to match COCO/YOLO (see module doc).
 
     Returns dict with:
         clip    str          zero-padded id
@@ -82,6 +93,10 @@ def load_labels(clip, root: Path = PENN_ROOT) -> dict:
     if bbox.shape[0] < T:
         bbox = np.vstack([bbox, np.repeat(bbox[-1:], T - bbox.shape[0], axis=0)])
 
+    kp = np.stack([x, y], axis=-1)
+    if mirror_lr:
+        kp, vis = kp[:, LR_SWAP], vis[:, LR_SWAP]
+
     return {
         "clip": clip_id(clip),
         "action": str(m["action"]),
@@ -90,7 +105,7 @@ def load_labels(clip, root: Path = PENN_ROOT) -> dict:
         "T": T,
         "H": int(dims[0]),
         "W": int(dims[1]),
-        "kp": np.stack([x, y], axis=-1),
+        "kp": kp,
         "vis": vis,
         "bbox": bbox[:T],
     }
@@ -158,7 +173,8 @@ def select_clips(split: int, action: str = "squat",
     Returns:
         DataFrame, one row per kept clip, sorted by clip id, columns:
           clip (str, zero-padded), view, nframes, vis_L, vis_R,
-          side ("L" or "R": the better-visible chain, used for near-side plots)
+          side ("L" or "R": the better-visible chain, used for near-side plots;
+                in the COCO/YOLO L/R convention because load_labels mirrors Penn)
 
     Expected (checked once): split=-1 -> 37 clips, split=1 -> 46 clips (before the cap).
     """
