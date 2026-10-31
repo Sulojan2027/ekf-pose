@@ -33,6 +33,9 @@ class EKFParams:
     adaptive_R: bool = True     # False -> sigma_j = sigma0 for every kept keypoint
     gating: bool = True
     joint_limits: bool = True
+    # track-loss recovery: a limb is re-initialised from the measurement once one of its
+    # confident keypoints has been gated this many frames in a row (0 = off). See PoseEKF.
+    reinit_after: int = 3
 
 
 def make_F(dt: float = 1.0) -> np.ndarray:

@@ -3,7 +3,7 @@ ekf/skeleton.py
 
 2D planar skeleton model for the EKF:
   - state index constants (29-D state)        [filled: transcription of HANDOFF 7.2]
-  - segment table + kinematic chains           [segments filled, chains partly TODO]
+  - segment table + kinematic chains           [done]
   - fk(x):        forward kinematics h(x) -> 12 keypoints (24-D z)
   - jacobian(x):  analytic H = dh/dx (24 x 29)
   - init_from_keypoints(): inverse-kinematics initialisation (x0, P0)
