@@ -8,4 +8,3 @@ __pycache__/
 *.txt.token
 HF_TOKEN*
 .vscode/
-*.md
