@@ -2,11 +2,6 @@
 baselines/moving_average.py
 
 Baseline 1: CAUSAL moving average of each keypoint over the last `window` frames.
-Causal = frame t may only use frames <= t (the EKF is causal too, so this is fair).
-Only keypoints with conf >= c_min are averaged (same threshold as every other method).
-
-Expected behaviour (for the report): less jitter than raw, but a LAG of about
-(window - 1) / 2 frames, and no notion of bones (lengths still fluctuate).
 """
 
 import numpy as np
@@ -22,8 +17,7 @@ def moving_average(kp: np.ndarray, conf: np.ndarray, window: int = 5,
         window: number of frames averaged (window = 1 reproduces the masked raw input).
         c_min:  keypoints below this confidence are ignored.
     Returns:
-        out: (T, 12, 2). out[t, j] = mean of kp[s, j] over s in [t - window + 1, t]
-             with conf[s, j] >= c_min;  NaN if there is no such s.
+        out: (T, 12, 2).
     """
     T = len(kp)
     valid = conf >= c_min

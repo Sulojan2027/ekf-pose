@@ -2,32 +2,6 @@
 experiments/exp_real.py
 
 Real-data experiments on Penn Action (GT = Penn labels, already L/R-mirror-fixed in data_io).
-
-  tune : grid search on the 10 TUNING clips only (never the test clips)
-         EKF sigma_alpha x sigma0, moving-average window, per-keypoint-KF sigma_a
-         -> results/tuned_params.json, results/tables/e2_real_tune.csv, figure e2_real_tune
-  run  : everything below on the 37 TEST clips with the tuned parameters
-         E6  raw vs moving average vs per-keypoint KF vs EKF (yolo26n)   -> e6_methods (+ e6_trace fig)
-         E5  EKF ablation: adaptive R / gating / joint limits / re-init / far leg -> e5_real_ablation
-         E7  yolo26n(+EKF) vs yolo26x(+EKF): accuracy vs runtime           -> e7_edge (+ fig)
-         E8  bone lengths over time, one clip                              -> e8_bone_lengths fig
-         E10 overlay of GT / raw / EKF skeletons on frames, one clip       -> e10_overlay fig
-
-Scoring rules (fairness, write them in the report):
-  - every method uses the same cached YOLO keypoints and the same c_min;
-  - angle RMSE / lag are computed on the frames where GT is visible AND every compared
-    method has an estimate (common frames); `coverage` = share of GT-visible frames where
-    the method has an estimate at all (raw has gaps, the EKF coasts through them);
-  - numbers are per-clip metrics averaged over clips (+ medians); per-clip values are saved too.
-  - "EKF, far leg ignored": YOLO is ~95 % confident on the SELF-OCCLUDED far-side leg in side
-    views, and the EKF's shared bone lengths let those guesses corrupt the near leg. This variant
-    drops the far knee + ankle. The far side comes from Penn's `view` label (camera metadata,
-    matches the near side in 46/47 clips), NOT from GT keypoints, so it is a fair input.
-
-Usage:
-  python -m experiments.exp_real tune
-  python -m experiments.exp_real run                 # all of E5 E6 E7 E8 E10
-  python -m experiments.exp_real run --only E6 E7
 """
 
 import argparse
@@ -55,7 +29,7 @@ FIG, TAB = Path("report/figures"), Path("results/tables")
 KP_DIR, TUNED = Path("results/keypoints"), Path("results/tuned_params.json")
 COL = {"GT": "k", "raw": "#9ca3af", "moving average": "#16a34a", "per-keypoint KF": "#ea580c", "EKF": "#2563eb",
        "EKF, far leg ignored": "#7c3aed"}
-FAR_LEG = {"L": [sk.R_KN, sk.R_AN], "R": [sk.L_KN, sk.L_AN]}       # far side = opposite of the view
+FAR_LEG = {"L": [sk.R_KN, sk.R_AN], "R": [sk.L_KN, sk.L_AN]}
 
 # tuning grids
 GRID_ALPHA = [0.003, 0.006, 0.01, 0.02, 0.03, 0.05]
@@ -64,7 +38,7 @@ GRID_MA = [3, 5, 7, 9]
 GRID_KF = [0.5, 1.0, 2.0, 4.0, 8.0]
 
 
-# ----------------------------------------------------------------------------- data
+# data
 def clip_list(name: str) -> pd.DataFrame:
     df = pd.read_csv(f"results/clips_{name}.csv", dtype={"clip": str})
     df["clip"] = df["clip"].str.zfill(4)
@@ -93,7 +67,7 @@ def drop_far_leg(d: dict) -> dict:
     return dd
 
 
-# ----------------------------------------------------------------------------- methods
+# methods
 def run_ekf(d, p: EKFParams) -> dict:
     out = PoseEKF(p).run(d["kp"], d["conf"])
     used, gated = out["n_used"].sum(), out["n_gated"].sum()
@@ -165,7 +139,7 @@ def savefig(fig, name):
     print(f"  figure -> {FIG / name}.png")
 
 
-# ----------------------------------------------------------------------------- tune
+# tune
 def objective(rows, method):
     """MEDIAN over clips of the per-clip mean(knee RMSE, hip RMSE): a few clips with bad GT /
     extreme foreshortening would otherwise decide the parameters on only 10 tuning clips."""
@@ -221,8 +195,6 @@ def load_tuned() -> dict:
         return {"ekf": {}, "ma_window": 5, "kf_sigma_a": 2.0}
     return json.loads(TUNED.read_text())
 
-
-# ----------------------------------------------------------------------------- E6 / E5 / E7
 def e6(cfg, data):
     print("E6: methods on the test set (yolo26n)")
     p = dataclasses.replace(EKFParams(), **cfg["ekf"])
@@ -303,8 +275,6 @@ def e7(cfg, data_n):
     ax.set_title("E7: accuracy vs runtime (RTX 2050)", fontsize=10); ax.grid(alpha=0.3)
     savefig(fig, "e7_edge")
 
-
-# ----------------------------------------------------------------------------- E8 / E10
 def showcase_clip(data):
     """Clip used for E8/E10: most GT-visible frames on the near-side leg."""
     return max(data, key=lambda d: M.angle_valid(d["vis"], d["side"])[0].sum())
@@ -358,7 +328,7 @@ def e10(cfg, data):
     knee = M.joint_angles(d["gt"], d["side"])[0]
     ok = M.angle_valid(d["vis"], d["side"])[0]
     deep = int(np.nanargmax(np.where(ok, knee, np.nan)))
-    start = max(int(0.1 * d["T"]), 3)                      # 4 distinct phases: start, descent, bottom, ascent
+    start = max(int(0.1 * d["T"]), 3)                      
     frames = sorted({start, (start + deep) // 2, deep, min(deep + int(0.6 * (d["T"] - 1 - deep)), d["T"] - 1)})
     paths = frame_paths(d["clip"])
     fig, axs = plt.subplots(1, len(frames), figsize=(3.2 * len(frames), 4))

@@ -1,29 +1,5 @@
 """
-data_io/penn.py
-
 Penn Action loading helpers and clip selection for the experiments.
-
-- load_labels():   GT keypoints, visibility mask, bbox and metadata of one clip
-- frame_paths():   sorted frame image paths of one clip
-- penn_to_coco():  put Penn joints 1..12 into COCO-17 slots 5..16
-- chain_visibility(), select_clips():  pick the squat test / tuning clips
-
-Penn Action joint order (13 joints, 0-based):
-  0 head, 1 L_shoulder, 2 R_shoulder, 3 L_elbow, 4 R_elbow, 5 L_wrist,
-  6 R_wrist, 7 L_hip, 8 R_hip, 9 L_knee, 10 R_knee, 11 L_ankle, 12 R_ankle
-Penn joints 1..12 == COCO keypoints 5..16 (same order).
-
-Invisible joints carry junk coordinates: GT is only valid where vis is True.
-
-LEFT/RIGHT MIRROR FIX: Penn Action's "left"/"right" labels are the mirror of the
-COCO / YOLO convention. Checked on all 47 selected side-view squat clips (test + tune):
-swapping Penn L<->R lowers the GT-vs-YOLO keypoint error in 47/47 clips (median ~4x).
-load_labels() therefore swaps every L/R joint pair by default (mirror_lr=True), so
-"L_knee" means the same physical joint in GT, YOLO and the EKF. Report this in the
-Implementation section. (Only verified on side views; the project does not use others.)
-
-Usage (prints the selected clip lists and saves them as CSV):
-  python -m data_io.penn
 """
 
 import argparse
@@ -42,13 +18,13 @@ JOINT_NAMES = [
 ]
 N_PENN = 13
 
-# Same-side leg chains (Penn indices): shoulder, hip, knee, ankle
+# Same-side leg chains
 LEG_CHAIN = {
     "L": [1, 7, 9, 11],
     "R": [2, 8, 10, 12],
 }
 
-# Penn index permutation that swaps every left/right pair (head stays)
+# Swaps every left/right pair
 LR_SWAP = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11]
 
 # Penn joints 1..12  <->  COCO keypoints 5..16
@@ -87,8 +63,7 @@ def load_labels(clip, root: Path = PENN_ROOT, mirror_lr: bool = True) -> dict:
     vis = np.atleast_2d(np.asarray(m["visibility"])) == 1
     T = int(m["nframes"])
     dims = np.atleast_1d(m["dimensions"]).astype(int)    # [H, W, nframes]
-
-    # Some clips (e.g. 1865) have one bbox row fewer than frames: repeat the last row
+    
     bbox = np.atleast_2d(np.asarray(m["bbox"], dtype=float))
     if bbox.shape[0] < T:
         bbox = np.vstack([bbox, np.repeat(bbox[-1:], T - bbox.shape[0], axis=0)])
@@ -120,10 +95,7 @@ def frame_paths(clip, root: Path = PENN_ROOT) -> list[Path]:
 
 
 def penn_to_coco(kp: np.ndarray, vis: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Place Penn body joints into COCO-17 slots so GT and YOLO arrays line up.   [glue: filled in]
-
-    Penn head has no COCO equivalent (COCO 0..4 are nose/eyes/ears), so
-    COCO slots 0..4 are NaN and marked not visible.
+    """Place Penn body joints into COCO-17 slots so GT and YOLO arrays line up.
 
     Args:
         kp:  (T, 13, 2) Penn keypoints.
@@ -160,10 +132,6 @@ def select_clips(split: int, action: str = "squat",
                  index_csv: Path = INDEX_CSV, root: Path = PENN_ROOT) -> pd.DataFrame:
     """Select clips for an experiment set.
 
-    A clip is kept if action matches, view is in `views`, train == split, and
-    at least one same-side leg chain (shoulder, hip, knee, ankle) is fully
-    visible in >= min_chain_vis of its frames.
-
     Args:
         split:         -1 for the test set, 1 for the tuning (train) set.
         action, views: filters on the index columns.
@@ -174,9 +142,7 @@ def select_clips(split: int, action: str = "squat",
         DataFrame, one row per kept clip, sorted by clip id, columns:
           clip (str, zero-padded), view, nframes, vis_L, vis_R,
           side ("L" or "R": the better-visible chain, used for near-side plots;
-                in the COCO/YOLO L/R convention because load_labels mirrors Penn)
-
-    Expected (checked once): split=-1 -> 37 clips, split=1 -> 46 clips (before the cap).
+                in the COCO/YOLO L/R convention because load_labels mirrors Penn).
     """
     df = pd.read_csv(index_csv, dtype={"clip": str})
     df["clip"] = df["clip"].str.zfill(4)
@@ -226,7 +192,6 @@ def main():
         print("views:", sel["view"].value_counts().to_dict(),
               "| frames total:", int(sel["nframes"].sum()), "\n")
 
-    # Sanity check of the loader on the first test clip
     lab = load_labels(sets["test"]["clip"].iloc[0])
     print("load_labels check:", lab["clip"], lab["view"], "kp", lab["kp"].shape,
           "vis", lab["vis"].shape, "bbox", lab["bbox"].shape,

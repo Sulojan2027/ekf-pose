@@ -1,18 +1,5 @@
 """
 eval/metrics.py
-
-Every number in the results tables comes from this file, computed IDENTICALLY for
-GT, raw YOLO, the baselines and the EKF (HANDOFF 7.9 / section 9).
-
-  [filled]  joint_angles(), angle_valid(), mask_low_conf()   - how angles are obtained
-  [done]    angle_rmse(), jitter(), lag(), keypoint_rmse_pct(),
-            bone_length_cv(), nees(), chi2_band()            - how they are scored
-
-Conventions
-  - Angles in radians inside, DEGREES out of every metric (tables are in degrees).
-  - NaN means "no estimate" (method has nothing at that frame); metrics skip NaNs.
-  - `valid` masks come from GT visibility: score only where GT is trustworthy.
-  - Side views: evaluate the near-side leg `side` ("L"/"R", from results/clips_*.csv).
 """
 
 import numpy as np
@@ -27,13 +14,9 @@ SIDE_KP = {  # (shoulder, hip, knee, ankle) in local keypoint order
 }
 
 
-# ----------------------------------------------------------------------------- angles  [filled]
+# ----------------------------------------------------------------------------- angles
 def joint_angles(kp: np.ndarray, side: str) -> tuple[np.ndarray, np.ndarray]:
     """Knee and hip flexion (rad) of one leg from keypoints, for ANY method.
-
-    kp: (T, 12, 2), NaN allowed.  Returns knee (T,), hip (T,) (NaN where an input is NaN).
-    Torso direction = same-side hip -> shoulder (works for GT, where the far shoulder is
-    often invisible). For the EKF pass out["z"] (= fk(x)) so it is scored the same way.
     """
     sh, hp, kn, an = (kp[:, j] for j in SIDE_KP[side])
     return sk.flexion_angles(sk.seg_angle(hp, sh), sk.seg_angle(hp, kn), sk.seg_angle(kn, an))
@@ -52,24 +35,19 @@ def mask_low_conf(kp: np.ndarray, conf: np.ndarray, c_min: float) -> np.ndarray:
     return out
 
 
-# ----------------------------------------------------------------------------- scores  [done]
+# ----------------------------------------------------------------------------- scores
 def angle_rmse(est: np.ndarray, gt: np.ndarray, valid: np.ndarray) -> float:
     """RMSE (deg) between two angle series on frames where valid AND both are finite.
-
-    est, gt: (T,) rad.  valid: (T,) bool.  Returns NaN if no frame qualifies.
     """
     m = valid & np.isfinite(est) & np.isfinite(gt)
     if not m.any():
         return np.nan
-    err = sk.wrap(est[m] - gt[m])              # plain angles -> wrap (wrap_angles is for 29-D states)
+    err = sk.wrap(est[m] - gt[m])              
     return float(np.sqrt(np.mean(err ** 2)) * DEG)
 
 
 def jitter(angle: np.ndarray) -> float:
     """Mean absolute second difference (deg / frame^2): how 'shaky' a curve is.
-
-    a''(t) ~ a[t+1] - 2 a[t] + a[t-1]. A smooth squat has small a''; noise makes it large.
-    Uses only triples of consecutive finite values. NaN if none.
     """
     d2 = angle[2:] - 2 * angle[1:-1] + angle[:-2]
     d2 = d2[np.isfinite(d2)]
@@ -80,12 +58,6 @@ def jitter(angle: np.ndarray) -> float:
 
 def lag(est: np.ndarray, gt: np.ndarray, valid: np.ndarray, max_lag: int = 10) -> int | float:
     """Delay of est behind gt (frames) = the shift k that maximises their cross-correlation.
-
-    Positive k means est is LATE: est[t] best matches gt[t - k] (e.g. a moving average).
-    Causal filters can only be late (k >= 0); report it next to RMSE, because smoothing
-    buys low jitter by adding lag.
-    Returns NaN (not 0) if no shift has >= 10 overlapping frames, so such clips are
-    skipped by nanmedian instead of being counted as 'no lag'.
     """
     ok = valid & np.isfinite(est) & np.isfinite(gt)
     T = len(est)
@@ -108,10 +80,6 @@ def lag(est: np.ndarray, gt: np.ndarray, valid: np.ndarray, max_lag: int = 10) -
 def keypoint_rmse_pct(kp_est: np.ndarray, kp_gt: np.ndarray, vis: np.ndarray,
                       bbox: np.ndarray) -> float:
     """Keypoint RMSE as % of the GT person-box height (scale-free across clips).
-
-    kp_est, kp_gt: (T, 12, 2).  vis: (T, 12) GT visibility.  bbox: (T, 4) [x1, y1, x2, y2].
-    Per visible joint: e = ||est - gt|| / box_height(t). Return 100 * sqrt(mean(e^2))
-    over visible joints with a finite estimate.
     """
     h = bbox[:, 3] - bbox[:, 1]
     e = np.linalg.norm(kp_est - kp_gt, axis=-1) / h[:, None]
@@ -123,26 +91,18 @@ def keypoint_rmse_pct(kp_est: np.ndarray, kp_gt: np.ndarray, vis: np.ndarray,
 
 def bone_length_cv(kp: np.ndarray, side: str, valid: np.ndarray | None = None) -> float:
     """How much the thigh and shank lengths implied by kp vary: mean of the two CVs (%).
-
-    CV = std / mean of a bone's length over frames. A rigid body has CV ~ 0 (up to
-    perspective). Raw keypoints and per-keypoint KFs do not enforce this; the EKF does.
-    valid: (T,) bool frames to use (e.g. GT knee-visible frames), None = all finite frames.
     """
     _, hip, knee, an = SIDE_KP[side]
-    cvs = []                                         # one CV per bone (thigh, shank)
+    cvs = []                                      
     for a, b in ((hip, knee), (knee, an)):
-        L = np.linalg.norm(kp[:, b] - kp[:, a], axis=-1)       # (T,) bone length per frame
+        L = np.linalg.norm(kp[:, b] - kp[:, a], axis=-1)      
         m = np.isfinite(L) if valid is None else (np.isfinite(L) & valid)
         cvs.append(L[m].std() / L[m].mean() if m.sum() >= 2 else np.nan)
-    return float(100 * np.mean(cvs))                 # NaN if either bone had < 2 frames
+    return float(100 * np.mean(cvs))              
 
 
 def nees(err: np.ndarray, P: np.ndarray) -> np.ndarray:
     """Normalised Estimation Error Squared per frame: e^T P^-1 e.
-
-    err: (T, n) estimation error x_est - x_true (ANGLE parts already wrapped by the caller).
-    P:   (T, n, n) the filter's covariance.  Returns (T,).
-    A consistent filter has E[NEES] = n.
     """
     sol = np.linalg.solve(P, err[..., None])[..., 0]
     return (err * sol).sum(-1)
@@ -150,10 +110,6 @@ def nees(err: np.ndarray, P: np.ndarray) -> np.ndarray:
 
 def chi2_band(dof: int, n_runs: int, q: float = 0.95) -> tuple[float, float]:
     """Two-sided q-probability band for the AVERAGE of n_runs independent chi^2(dof) values.
-
-    Sum of n_runs chi^2(dof) values is chi^2(n_runs * dof), so the average lies in
-        [chi2.ppf((1 - q)/2, n_runs*dof), chi2.ppf((1 + q)/2, n_runs*dof)] / n_runs
-    with probability q. Used for the E3 plots (NEES and NIS averaged over Monte-Carlo runs).
     """
     n = n_runs * dof
     lo = chi2.ppf((1 - q) / 2, n) / n_runs

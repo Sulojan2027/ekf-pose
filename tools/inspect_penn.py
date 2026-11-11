@@ -1,15 +1,5 @@
 """
-tools/inspect_penn.py
-
-Index the Penn Action dataset: one row per clip with action, camera view,
-frame count, frame size and keypoint visibility. Prints a summary and saves
-results/penn_index.csv so we can pick clips for the experiments.
-
-Penn Action joint order (13 joints, 0-based):
-  0 head, 1 L_shoulder, 2 R_shoulder, 3 L_elbow, 4 R_elbow, 5 L_wrist,
-  6 R_wrist, 7 L_hip, 8 R_hip, 9 L_knee, 10 R_knee, 11 L_ankle, 12 R_ankle
-Joints 1..12 are in exactly the same order as COCO keypoints 5..16,
-so  penn[:, 1:13]  <->  coco[:, 5:17].
+Index the Penn Action dataset into results/penn_index.csv.
 
 Usage:
   python tools/inspect_penn.py --root data/Penn_Action
@@ -36,9 +26,7 @@ def load_clip(mat_path: Path) -> dict:
         "height": int(dims[0]),
         "width": int(dims[1]),
         "train": int(m["train"]),
-        # mean visibility of the 12 body joints (skip head)
         "body_vis": float(vis[:, 1:13].mean()),
-        # fraction of frames where at least one body joint is occluded
         "occl_frames": float((vis[:, 1:13] < 0.5).any(axis=1).mean()),
     }
 
@@ -54,7 +42,6 @@ def main():
     if not mats:
         raise SystemExit(f"No .mat files found in {label_dir}")
 
-    # Show the raw fields of the first file once, to confirm the format
     first = sio.loadmat(mats[0], squeeze_me=True)
     print("Fields in", mats[0].name, ":",
           [k for k in first.keys() if not k.startswith("__")])

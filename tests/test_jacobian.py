@@ -1,12 +1,5 @@
 """
-tests/test_jacobian.py
-
-Checks the skeleton model:
-  - analytic Jacobian == central finite differences on random states (never drop)
-  - y-down convention: an upright standing state has head-to-toe increasing y
-  - wrap(), joint limits, length clamping
-
-Run:  python -m pytest tests/test_jacobian.py -v
+Checks of the skeleton model: Jacobian, y-down convention, wrap, limits, clamping.
 """
 
 import numpy as np
@@ -16,7 +9,7 @@ from ekf import skeleton as sk
 
 
 def random_state(rng: np.random.Generator) -> np.ndarray:
-    """A random but plausible 29-D state (any angles, positive lengths)."""
+    """A random but plausible 29-D state."""
     x = np.zeros(sk.N_X)
     x[sk.P0] = rng.uniform(100, 400, 2)
     x[sk.ANGLES] = rng.uniform(-np.pi, np.pi, sk.N_ANG)
@@ -37,11 +30,7 @@ def standing_state() -> np.ndarray:
 
 
 def numerical_jacobian(f, x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
-    """Central finite-difference Jacobian of f at x.
-
-    Column k:  (f(x + eps e_k) - f(x - eps e_k)) / (2 eps)     error O(eps^2)
-    Returns (len(f(x)), len(x)).
-    """
+    """Central finite-difference Jacobian of f at x."""
     f0 = f(x)
     J = np.zeros((len(f0), len(x)))
     for k in range(len(x)):
@@ -71,15 +60,14 @@ def test_standing_pose_y_down():
     y = z[:, 1]
     for side in ("L", "R"):
         sh, hip, kn, an = (getattr(sk, f"{side}_{n}") for n in ("SH", "HIP", "KN", "AN"))
-        assert y[sh] < y[hip] < y[kn] < y[an], f"{side}: shoulder above hip above knee above ankle"
-    # left and right keypoints mirror around the root in x
+        assert y[sh] < y[hip] < y[kn] < y[an], side
     assert z[sk.L_HIP, 0] - 200 == pytest.approx(-(z[sk.R_HIP, 0] - 200))
 
 
 def test_fk_inverts_init():
-    """IK init on fk(x) should give back fk(x) (lengths/angles recovered)."""
+    """IK init on fk(x) should give back fk(x)."""
     x = standing_state()
-    x[sk.ANG_THIGH_L] = 0.3          # bend things a bit
+    x[sk.ANG_THIGH_L] = 0.3
     x[sk.ANG_SHANK_L] = 2.0
     x[sk.ANG_THIGH_R] = 0.3
     x[sk.ANG_SHANK_R] = 2.0
@@ -99,13 +87,13 @@ def test_wrap_range():
 
 def test_joint_limits_clamp_knee_only_when_violated():
     x = standing_state()
-    x[sk.ANG_THIGH_L], x[sk.ANG_SHANK_L] = 0.0, np.deg2rad(-175)   # rel = 175 deg > 165
-    x[sk.ANG_THIGH_R], x[sk.ANG_SHANK_R] = 0.0, np.deg2rad(-90)    # rel = 90 deg, fine
+    x[sk.ANG_THIGH_L], x[sk.ANG_SHANK_L] = 0.0, np.deg2rad(-175)
+    x[sk.ANG_THIGH_R], x[sk.ANG_SHANK_R] = 0.0, np.deg2rad(-90)
     y = sk.apply_joint_limits(x)
     knee_L = abs(sk.wrap(y[sk.ANG_THIGH_L] - y[sk.ANG_SHANK_L]))
     assert knee_L == pytest.approx(sk.KNEE_LIMIT)
-    assert y[sk.ANG_THIGH_L] == x[sk.ANG_THIGH_L]                   # proximal untouched
-    assert y[sk.ANG_SHANK_R] == x[sk.ANG_SHANK_R]                   # no violation, no change
+    assert y[sk.ANG_THIGH_L] == x[sk.ANG_THIGH_L]
+    assert y[sk.ANG_SHANK_R] == x[sk.ANG_SHANK_R]
 
 
 def test_clamp_lengths():

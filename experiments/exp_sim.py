@@ -1,18 +1,5 @@
 """
 experiments/exp_sim.py
-
-Simulation experiments (known ground truth):
-  E1  knee/hip angle: truth vs raw vs EKF (+-2 sigma)        -> e1_sim_angles
-  E2  3x3 sweep sigma_alpha x sigma0 (knee RMSE, jitter)      -> e2_sim_sweep
-  E3  NEES / NIS vs chi^2 95 % band (model-matched truth)     -> e3_consistency     (NEVER DROP)
-  E4  occlusion of knees+ankles for 10 / 20 / 30 frames        -> e4_occlusion
-  E5s ablation (adaptive R, gating, joint limits) + baselines  -> e5_sim_ablation
-
-Figures -> report/figures/<name>.png and .pdf ; tables -> results/tables/<name>.csv
-
-Usage:
-  python -m experiments.exp_sim                 # everything (~1 min)
-  python -m experiments.exp_sim --only E1 E3
 """
 
 import argparse
@@ -36,8 +23,8 @@ from sim.simulate import LEG_KP, SimConfig, cv_states, observe, scenario, squat_
 
 FIG, TAB = Path("report/figures"), Path("results/tables")
 C = {"truth": "k", "raw": "#9ca3af", "ma": "#16a34a", "kf": "#ea580c", "ekf": "#2563eb"}
-WARM = 10                      # frames ignored at the start of every RMSE (filter warm-up)
-SIDE = "L"                     # sim is symmetric; score the left leg
+WARM = 10                      
+SIDE = "L"                     
 
 
 def savefig(fig, name):
@@ -80,7 +67,7 @@ def angle_scores(kp_est, clean):
             "knee_jitter": M.jitter(np.where(v, k_e, np.nan))}
 
 
-# ----------------------------------------------------------------------------- E1
+# E1
 def e1():
     print("E1: knee / hip angle time series")
     X, kp, conf, clean, _ = scenario("clean", seed=0)
@@ -111,7 +98,7 @@ def e1():
     savefig(fig, "e1_sim_angles")
 
 
-# ----------------------------------------------------------------------------- E2
+# E2
 SWEEP_ALPHA, SWEEP_S0, SEEDS = [0.01, 0.03, 0.1], [2.0, 4.0, 8.0], range(10)
 
 
@@ -143,7 +130,7 @@ def e2():
     savefig(fig, "e2_sim_sweep")
 
 
-# ----------------------------------------------------------------------------- E3
+# E3
 N_RUNS, T3 = 30, 100
 P_MATCHED = EKFParams(sigma_a=0.5, sigma_alpha=0.01, sigma_L=0.02, sigma0=3.0,
                       adaptive_R=False, gating=False, joint_limits=False, reinit_after=0)
@@ -162,7 +149,6 @@ def _nees_nis(X, out):
 def e3():
     print(f"E3: NEES / NIS consistency, {N_RUNS} Monte-Carlo runs")
     res = {}
-    # (a) truth drawn from the filter's own model, R matched exactly
     nees, nis = [], []
     for r in range(N_RUNS):
         rng = np.random.default_rng(100 + r)
@@ -173,7 +159,6 @@ def e3():
         a, b = _nees_nis(X, PoseEKF(P_MATCHED).run(kp, conf))
         nees.append(a); nis.append(b)
     res["matched model"] = (np.array(nees), np.array(nis))
-    # (b) realistic squat, default parameters (model mismatch)
     nees, nis = [], []
     for r in range(N_RUNS):
         X, kp, conf, _, _ = scenario("clean", seed=200 + r, T=T3)
@@ -188,7 +173,7 @@ def e3():
     t = np.arange(T3)
     for (name, (ne, ni)), col, ls in zip(res.items(), [C["ekf"], C["kf"]], ["-", "--"]):
         with np.errstate(all="ignore"), warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)          # frame 0 (init) is all NaN
+            warnings.simplefilter("ignore", RuntimeWarning)         
             mne, mni = np.nanmean(ne, 0), np.nanmean(ni, 0)
         axs[0].plot(t, mne, color=col, ls=ls, label=name)
         axs[1].plot(t, mni, color=col, ls=ls, label=name)
@@ -206,7 +191,7 @@ def e3():
     savetab(pd.DataFrame(rows), "e3_consistency")
 
 
-# ----------------------------------------------------------------------------- E4
+# E4
 OCC_START, OCC_LENS = 60, [10, 20, 30]
 
 
@@ -248,7 +233,7 @@ def e4():
     savetab(pd.DataFrame(rows), "e4_occlusion")
 
 
-# ----------------------------------------------------------------------------- E5 (sim)
+# E5 (sim)
 VARIANTS = {
     "EKF (full)": {},
     "EKF fixed R": {"adaptive_R": False},

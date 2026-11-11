@@ -3,22 +3,6 @@ pose/run_pose.py
 
 Run YOLO26-pose on Penn Action frame folders and cache the raw keypoints.
 Ultralytics is used ONLY for model.predict(); no tracking or smoothing.
-
-For every clip and model, saves results/keypoints/<clip>_<model>.npz with:
-  kp         (T, 17, 3)  float32  COCO-17 keypoints (x, y, conf) of the person
-                                   with the largest box; zeros if nobody detected
-  box        (T, 4)      float32  that person's box [x1, y1, x2, y2] (zeros if none)
-  box_conf   (T,)        float32  that person's box confidence (0 if none)
-  n_persons  (T,)        int16    number of detections in the frame
-  t_infer_ms (T,)        float32  Ultralytics model forward time per frame (ms)
-  t_total_ms (T,)        float32  preprocess + inference + postprocess (ms)
-  model, imgsz                     metadata
-
-Existing cache files are skipped, so the script can be stopped and restarted.
-
-Usage (run in a second terminal, it takes a while):
-  python -m pose.run_pose                         # nano + x, test + tune clips
-  python -m pose.run_pose --models yolo26n --sets test
 """
 
 import argparse
@@ -121,7 +105,6 @@ def main():
         if not todo:
             continue
         model = YOLO(str(WEIGHTS[name]))
-        # warm-up so CUDA init / first-call overhead doesn't pollute the timings
         model.predict(str(frame_paths(todo[0])[0]), imgsz=args.imgsz,
                       device=args.device, verbose=False)
 

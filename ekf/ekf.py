@@ -1,21 +1,5 @@
 """
-ekf/ekf.py
-
-Extended Kalman Filter on the 29-D planar skeleton (HANDOFF 7.6, guide Step 7).
-
-Per frame:  predict -> (1) confidence mask -> (2) adaptive R -> (3) per-keypoint NIS gate
-            -> EKF update on the kept rows (Joseph form) -> constrain (wrap, symmetrise,
-            clamp lengths, joint limits).
-If no keypoint survives (1)-(3), the update is skipped and the filter coasts.
-
-Track-loss recovery (added after experiment E4): after a long coast the angle uncertainty is
-a curved "banana" that the EKF's linearised Gaussian cannot represent. The returning keypoints
-then fail the gate every frame and the limb is never re-acquired. Fix: a limb whose confident
-keypoints were gated `reinit_after` frames in a row is re-initialised from the measurement.
-
-Usage:
-    ekf = PoseEKF(EKFParams())
-    out = ekf.run(kp_seq, conf_seq)     # kp_seq (T, 12, 2), conf_seq (T, 12)
+Extended Kalman Filter on the 29-D planar skeleton.
 """
 
 import time
@@ -25,7 +9,7 @@ import numpy as np
 from ekf import skeleton as sk
 from ekf.models import EKFParams, kept_rows, make_F, make_Q, make_R, measurement_std
 
-# limb segments for track-loss recovery: (angle index, proximal kp, distal kp)
+# limb segments for track-loss recovery
 LIMB_SEGS = [
     (sk.ANG_UARM_L, sk.L_SH, sk.L_EL), (sk.ANG_FARM_L, sk.L_EL, sk.L_WR),
     (sk.ANG_UARM_R, sk.R_SH, sk.R_EL), (sk.ANG_FARM_R, sk.R_EL, sk.R_WR),
@@ -41,7 +25,7 @@ class PoseEKF:
         self.Q = make_Q(self.p)
         self.x = None                     # (29,) state, None until initialised
         self.P = None                     # (29, 29)
-        self.n_rej = np.zeros(sk.N_KP, int)   # frames in a row each keypoint was gated
+        self.n_rej = np.zeros(sk.N_KP, int)
 
     @property
     def initialised(self) -> bool:
@@ -59,15 +43,6 @@ class PoseEKF:
     def gate(self, kp: np.ndarray, mask: np.ndarray, z_pred: np.ndarray,
              H: np.ndarray, sigma: np.ndarray) -> np.ndarray:
         """Per-keypoint NIS gate (step 3). Returns a NEW mask with outliers removed.
-
-        For every keypoint j still in `mask`:
-            r     = [2j, 2j+1]
-            y_j   = kp[j] - z_pred[r]                               (2,)
-            S_jj  = H[r] @ P @ H[r].T + sigma_j^2 * I_2             (2, 2)
-            nis_j = y_j @ solve(S_jj, y_j)
-            drop j if nis_j > self.p.gate
-        Note S_jj is the 2x2 diagonal block of the full S: it asks "is THIS keypoint
-        plausible on its own?", so one bad keypoint can't hide behind good ones.
         """
         mask = mask.copy()
         for j in np.flatnonzero(mask):
@@ -82,19 +57,6 @@ class PoseEKF:
     # ------------------------------------------------------------------ track-loss recovery
     def reinit_lost_segments(self, kp: np.ndarray, mask: np.ndarray) -> int:
         """Re-initialise limb angles whose keypoints have been gated too long.
-
-        For every (a, i, k) in LIMB_SEGS (angle index, proximal kp, distal kp):
-          if BOTH ends are usable now (mask[i] and mask[k]) and at least one end has been
-          gated >= self.p.reinit_after frames in a row (self.n_rej):
-            - angle      x[a]      = seg_angle(kp[i], kp[k])    (trust the measurement)
-            - velocity   x[a + 11] = 0                          (unknown again)
-            - covariance: forget everything about a and a + 11:
-                zero their rows AND columns in P, then put the initial variances back
-                (sk.P0_STD_ANG ** 2 and sk.P0_STD_VANG ** 2) on the diagonal
-            - reset self.n_rej[i] and self.n_rej[k] to 0
-        Returns the number of segments re-initialised.
-        Report: this is a re-initialisation heuristic; the principled alternatives are a UKF /
-        particle filter (can represent the curved uncertainty) or a multiple-hypothesis tracker.
         """
         n = 0
         for a, i, k in LIMB_SEGS:
@@ -103,13 +65,13 @@ class PoseEKF:
             if not (usable and lost):
                 continue
             v = a + sk.VEL_OFFSET
-            self.x[a] = sk.seg_angle(kp[i], kp[k])      # trust the measurement
-            self.x[v] = 0.0                             # angular velocity unknown again
-            for idx in (a, v):                          # forget all correlations first ...
+            self.x[a] = sk.seg_angle(kp[i], kp[k])     
+            self.x[v] = 0.0                            
+            for idx in (a, v):                        
                 self.P[idx, :] = 0.0
                 self.P[:, idx] = 0.0
-            self.P[a, a] = sk.P0_STD_ANG ** 2           # ... THEN restore the variances
-            self.P[v, v] = sk.P0_STD_VANG ** 2          #     (other order -> singular P)
+            self.P[a, a] = sk.P0_STD_ANG ** 2          
+            self.P[v, v] = sk.P0_STD_VANG ** 2          
             self.n_rej[i] = self.n_rej[k] = 0
             n += 1
         return n
@@ -138,7 +100,7 @@ class PoseEKF:
             info["status"] = "init"
             return info
         
-        # track-loss recovery (before linearising, so the new angles are used)   [glue]
+        # track-loss recovery
         if self.p.reinit_after > 0:
             info["n_reinit"] = self.reinit_lost_segments(kp, mask)
 
@@ -151,8 +113,8 @@ class PoseEKF:
         if self.p.gating:
             new = self.gate(kp, mask, z_pred, H, sigma)
             info["n_gated"] = int(mask.sum() - new.sum())
-            self.n_rej[mask & ~new] += 1          # confident but rejected: count   [glue]
-            self.n_rej[new] = 0                   # accepted: reset
+            self.n_rej[mask & ~new] += 1          
+            self.n_rej[new] = 0                  
             mask = new
         if not(mask.any()):
             return info
@@ -180,7 +142,7 @@ class PoseEKF:
         self.P = 0.5 * (self.P + self.P.T)
         return info
 
-    # ------------------------------------------------------------------ driver   [glue]
+    # ------------------------------------------------------------------ driver
     def step(self, kp: np.ndarray, conf: np.ndarray) -> dict:
         """One video frame: predict (if initialised) then update."""
         if self.initialised:

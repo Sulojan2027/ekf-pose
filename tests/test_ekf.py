@@ -1,14 +1,5 @@
 """
-tests/test_ekf.py
-
-Quick sanity checks of the EKF on a synthetic side-view squat (no YOLO, no dataset):
-  - F, Q, R shapes and structure
-  - EKF knee angle is more accurate than angles from the noisy keypoints
-  - bone lengths converge to the truth
-  - coasting through a dropout: uncertainty grows, filter recovers
-  - a 60 px outlier on one knee is gated
-
-Run:  python -m pytest tests/test_ekf.py -v
+Sanity checks of the EKF on a synthetic side-view squat.
 """
 
 import numpy as np
@@ -22,9 +13,9 @@ T, PERIOD, NOISE_PX = 120, 40, 3.0
 
 
 def true_states() -> np.ndarray:
-    """(T, 29) smooth side-view squat: hips drop, torso leans, knees bend, arms rise."""
+    """(T, 29) smooth side-view squat."""
     t = np.arange(T)
-    s = (1 - np.cos(2 * np.pi * t / PERIOD)) / 2            # 0 standing -> 1 bottom
+    s = (1 - np.cos(2 * np.pi * t / PERIOD)) / 2
     X = np.zeros((T, sk.N_X))
     X[:, 0], X[:, 1] = 200.0, 300.0 + 40 * s
     X[:, sk.ANG_TORSO] = -np.pi / 2 + 0.5 * s
@@ -98,7 +89,7 @@ def test_ekf_beats_raw_knee_angle(run_clean):
     raw = np.degrees(np.sqrt(np.mean((knee_from_kp(kp)[warm:] - knee_from_x(X)[warm:]) ** 2)))
     ekf = np.degrees(np.sqrt(np.mean((knee_from_x(out["x"])[warm:] - knee_from_x(X)[warm:]) ** 2)))
     print(f"knee RMSE  raw {raw:.2f} deg   EKF {ekf:.2f} deg")
-    assert ekf < 0.8 * raw                               # about 0.6 with a correct filter
+    assert ekf < 0.8 * raw
 
 
 def test_lengths_converge(run_clean):
@@ -108,38 +99,34 @@ def test_lengths_converge(run_clean):
 
 
 def test_nis_consistent_when_R_matches_noise():
-    """With R equal to the true keypoint noise, mean NIS / dof should be close to 1.
-
-    (With the default adaptive R at conf 0.9, sigma_j = 4.7 px > the true 3 px, so NIS / dof
-    drops to (3 / 4.7)^2 = 0.4: the filter is over-cautious. Same diagnosis as E3.)
-    """
+    """With R equal to the true keypoint noise, mean NIS / dof should be close to 1."""
     X = true_states()
     kp, conf = noisy_keypoints(X)
     out = PoseEKF(EKFParams(sigma0=NOISE_PX, adaptive_R=False)).run(kp, conf)
     ok = out["status"] == "update"
     ratio = np.nanmean(out["nis"][ok]) / np.mean(out["dof"][ok])
-    print(f"mean NIS / dof = {ratio:.2f}  (1.0 = consistent)")
+    print(f"mean NIS / dof = {ratio:.2f}")
     assert 0.6 < ratio < 1.4
 
 
 def test_coasting_through_dropout():
     X = true_states()
     kp, conf = noisy_keypoints(X)
-    conf[50:65] = 0.0                                    # nobody detected for 15 frames
+    conf[50:65] = 0.0
     out = PoseEKF(EKFParams()).run(kp, conf)
     assert np.all(out["status"][50:65] == "coast")
     var = out["P_diag"][:, sk.ANG_THIGH_L]
-    assert var[64] > 5 * var[49]                         # uncertainty grows while blind
-    assert var[80] < var[64]                             # and shrinks after recovery
+    assert var[64] > 5 * var[49]
+    assert var[80] < var[64]
     assert np.all(np.isfinite(out["x"][5:]))
 
 
 def test_outlier_is_gated():
     X = true_states()
     kp, conf = noisy_keypoints(X)
-    kp[70, sk.L_KN] += [60.0, 0.0]                       # confident but wrong knee
+    kp[70, sk.L_KN] += [60.0, 0.0]
     out = PoseEKF(EKFParams()).run(kp, conf)
     assert out["n_gated"][70] >= 1
     out_ng = PoseEKF(EKFParams(gating=False)).run(kp, conf)
     err = lambda o: abs(knee_from_x(o["x"])[70] - knee_from_x(X)[70])
-    assert err(out) < err(out_ng)                        # gating protects the estimate
+    assert err(out) < err(out_ng)
