@@ -8,3 +8,12 @@ __pycache__/
 *.txt.token
 HF_TOKEN*
 .vscode/
+
+# LaTeX build artefacts
+report/latex/*.aux
+report/latex/*.log
+report/latex/*.fls
+report/latex/*.fdb_latexmk
+report/latex/*.out
+report/latex/*.toc
+report/latex/*.synctex.gz
