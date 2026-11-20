@@ -170,7 +170,7 @@ def wrap_angles(x: np.ndarray) -> np.ndarray:
 
 
 def apply_joint_limits(x: np.ndarray) -> np.ndarray:
-    """Sign-agnostic joint-limit projection (HANDOFF 7.7). Returns a copy.
+    """Sign-agnostic joint-limit projection. Returns a copy.
     """
     x = x.copy()
     for prox, dist, limit in [
@@ -256,6 +256,6 @@ def init_from_keypoints(kp: np.ndarray, ok: np.ndarray):
     return clamp_lengths(wrap_angles(x0)), P_init
 
 def split_coco(kp17: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """(..., 17, 3) YOLO/COCO keypoints -> (..., 12, 2) positions, (..., 12) conf.   [glue]"""
+    """(..., 17, 3) YOLO/COCO keypoints -> (..., 12, 2) positions, (..., 12) conf."""
     body = kp17[..., COCO_BODY, :]
     return body[..., :2], body[..., 2]

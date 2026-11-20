@@ -12,7 +12,7 @@ N_X = 29
 
 @dataclass
 class EKFParams:
-    """Tunable parameters. Starting values from HANDOFF 7.5; tune on the tuning clips only."""
+    """Tunable parameters. Tuned on the tuning clips only."""
     sigma_a: float = 1.0        # root acceleration noise, px/frame^2
     sigma_alpha: float = 0.03   # angular acceleration noise, rad/frame^2
     sigma_L: float = 0.05       # length random walk, px/frame

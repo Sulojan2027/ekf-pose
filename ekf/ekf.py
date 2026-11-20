@@ -150,7 +150,7 @@ class PoseEKF:
         return self.update(kp, conf)
 
     def run(self, kp_seq: np.ndarray, conf_seq: np.ndarray) -> dict:
-        """Filter a whole clip.   [glue]
+        """Filter a whole clip.
 
         Args:
             kp_seq:   (T, 12, 2) keypoints.

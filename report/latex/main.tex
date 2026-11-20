@@ -124,6 +124,13 @@
 \lstset{language=Python}
 \newcommand{\T}{^{\mathsf{T}}}
 \newcommand{\wrapop}{\operatorname{wrap}}
+% cartoon body behind Fig. 1 (raise \bodyop for a stronger body, lower it for a fainter one)
+\newcommand{\bodyop}{0.5}
+\definecolor{bskin}{RGB}{238,190,150}
+\definecolor{bshirt}{RGB}{70,150,160}
+\definecolor{bshorts}{RGB}{35,55,110}
+\definecolor{bhair}{RGB}{50,35,25}
+\definecolor{bshoe}{RGB}{210,50,45}
 
 % Customize title style
 \pretitle{\begin{center}\LARGE\bfseries}
@@ -196,7 +203,10 @@ detector alone. Remaining failure modes are analysed and a concrete fix is propo
 \end{abstract}
 
 \vspace{1em}
-\noindent\textbf{Source code:} \url{https://github.com/Sulojan2027/ekf-pose} (Python/NumPy).
+\noindent\textbf{Source code:} \url{https://github.com/Sulojan2027/ekf-pose} (implemented from scratch in Python/NumPy).
+The project was developed in planned stages over a considerable period: data indexing and pose extraction,
+then the skeleton model with its Jacobian tests, the EKF, the simulator, the baselines and metrics, and
+finally the experiments. Each stage was verified by unit tests before the next one was built on it.
 
 \setcounter{tocdepth}{1}
 \tableofcontents
@@ -208,8 +218,8 @@ detector alone. Remaining failure modes are analysed and a concrete fix is propo
 Knee and hip angles during a squat are standard quantities in strength coaching and rehabilitation.
 Measuring them normally needs markers, IMUs or a motion-capture lab. A phone camera with a pose
 network is a cheap alternative: YOLO26-Pose \cite{ultralytics} returns 17 COCO keypoints
-\cite{coco} per frame in about 6\,ms on a laptop GPU. The raw output has \textbf{three major problems} for joint-angle
-measurement (Fig.~\ref{fig:overlay}):
+\cite{coco} per frame in about 6\,ms on a laptop GPU.\\ The raw output has \textbf{three major problems} for joint-angle
+measurement (Fig.~\ref{fig:overlay}):\\
 \begin{itemize}
     \item \textbf{Jitter.} Each frame is detected independently, so angles computed from raw keypoints
           shake from frame to frame.
@@ -221,15 +231,14 @@ measurement (Fig.~\ref{fig:overlay}):
 
 \paragraph{Why an EKF, and not a linear Kalman filter?}
 A linear Kalman filter \cite{kalman} can only smooth each keypoint's $x$ and $y$ independently. It
-cannot hold a bone at a constant length, cannot say that a knee does not bend past $165^\circ$, and never
-estimates a joint angle itself. If instead the \emph{state} contains the segment angles and bone
+cannot hold a bone at a constant length, and never estimates a joint angle itself. If instead the \emph{state} contains the segment angles and bone
 lengths, all three come for free, but a keypoint's position then depends on the angles through
-$\sin$ and $\cos$: the measurement model $h(\mathbf{x})$ is \emph{nonlinear}. The EKF
-\cite{simon,barshalom} handles this by linearising $h$ around the current estimate with its Jacobian
-$H$. The application is therefore \emph{target tracking of an articulated body}, and the filter is
+$\sin$ and $\cos$: the \textbf{measurement model $h(\mathbf{x})$ is \emph{nonlinear}}. The EKF
+\cite{simon,barshalom} handles this by linearising $h$ around the current estimate with its \textbf{Jacobian
+$H$.} The application is therefore \emph{target tracking of an articulated body}, and the filter is
 an EKF.
 
-\paragraph{Contributions.}
+\paragraph{Key Ideas.}
 \begin{enumerate}[leftmargin=*, itemsep=1pt]
     \item A 29-dimensional planar skeleton state with \textbf{online bone-length self-calibration},
           its forward-kinematics measurement model and an analytic, unit-tested Jacobian.
@@ -238,12 +247,12 @@ an EKF.
           discarding the frame.
     \item \textbf{Joint-limit projection} and a \textbf{track-loss re-initialisation} rule that fixes a
           failure of the linearised gate after long occlusions (found in experiment E4).
-    \item A complete evaluation: a simulator with known ground truth (accuracy, NEES/NIS consistency,
-          occlusion), real-data comparison against two baselines on Penn Action \cite{penn}, an ablation of
-          every component, and an edge-deployment study (YOLO26n vs YOLO26x).
-    \item A dataset finding: Penn Action's left/right joint labels are mirrored relative to the COCO
-          convention used by YOLO; correcting this lowers the ground-truth vs.\ detector error in all
-          47 clips used.
+    \item A complete evaluation: a \textbf{simulator with known ground truth} (accuracy, NEES/NIS consistency,
+          occlusion), \textbf{real-data comparison against two baselines} on Penn Action \cite{penn}, an ablation of
+          every component, and \textbf{an edge-deployment study} comparing YOLO26n with YOLO26x.
+    \item A \textbf{from-scratch implementation} in Python using only NumPy: the skeleton model,
+          forward kinematics, Jacobian, EKF, baselines and simulator use no third-party filtering,
+          robotics or pose-tracking library.
 \end{enumerate}
 
 % ============================================================================ 2 METHODOLOGY
@@ -280,7 +289,7 @@ the baselines and the EKF:
 \end{equation}
 both $0^\circ$ when standing straight and independent of which way the person faces.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[scale=1.15, >=Stealth, line cap=round,
     seg/.style={line width=2.2pt, blue!70!black}, jnt/.style={circle, fill=white, draw=black, inner sep=1.4pt}]
@@ -291,6 +300,42 @@ both $0^\circ$ when standing straight and independent of which way the person fa
   \coordinate (P0) at (0,0); \coordinate (SH) at (0.7,3.0);
   \coordinate (KN) at (2.3,-1.1); \coordinate (AN) at (1.4,-3.3);
   \coordinate (EL) at (1.9,2.3); \coordinate (WR) at (3.1,2.7);
+  % ---- cartoon body underlay (one transparency group; opacity set by \bodyop)
+  \begin{scope}[transparency group, opacity=\bodyop, line cap=round, line join=round]
+    \coordinate (HD) at ($(SH)!-0.27!(P0)$);                            % head centre
+    \draw[bskin, line width=24pt] (P0) -- (KN);                          % thigh
+    \draw[bskin, line width=18pt] (KN) -- (AN);                          % shank
+    \draw[white, line width=18pt, line cap=butt] (AN) -- ($(AN)!0.15!(KN)$);   % sock
+    \draw[bshirt, line width=40pt] ($(P0)!0.12!(SH)$) -- ($(SH)!0.06!(P0)$);   % T-shirt
+    \fill[bshorts] (P0) circle (0.62);                                   % gym shorts
+    \draw[bshorts, line width=30pt, line cap=butt] (P0) -- ($(P0)!0.55!(KN)$);
+    \coordinate (HM) at ($(P0)!0.53!(KN)$);
+    \draw[white, line width=1.6pt] ($(HM)!0.5cm!90:(KN)$) -- ($(HM)!0.5cm!-90:(KN)$);  % hem stripe
+    \draw[bshorts!60!white, line width=2pt] (-0.42,0.41) -- (0.555,0.178);    % waistband
+    \draw[bskin, line width=14pt] (SH) -- (EL);                          % upper arm
+    \draw[bskin, line width=12pt] (EL) -- (WR);                          % forearm
+    \fill[bskin] (WR) circle (0.17);                                     % hand
+    \draw[bshirt, line width=19pt] (SH) -- ($(SH)!0.42!(EL)$);           % sleeve
+    \draw[bskin, line width=11pt] (SH) -- (HD);                          % neck
+    \fill[bskin] (HD) circle (0.45);                                     % head
+    \begin{scope}
+      \clip (HD) circle (0.45);
+      \fill[bhair] ($(HD)+(-0.6,0.1)$) rectangle ($(HD)+(0.6,0.6)$);
+      \fill[bhair] ($(HD)+(-0.6,-0.3)$) rectangle ($(HD)+(-0.12,0.6)$);
+    \end{scope}
+    \fill[bskin!75!black] ($(HD)+(-0.02,-0.05)$) circle (0.08);          % ear
+    \fill[black!75] ($(HD)+(0.27,0.03)$) circle (0.045);                 % eye
+    \draw[black!60, line width=0.7pt] ($(HD)+(0.16,-0.2)$) arc (230:300:0.16);  % smile
+    % sneaker
+    \fill[bshoe, rounded corners=2.5pt] (1.04,-3.08) -- (1.04,-3.58) -- (2.32,-3.58)
+         -- (2.32,-3.44) .. controls (2.30,-3.30) .. (1.96,-3.27) -- (1.62,-3.08) -- cycle;
+    \fill[gray!15, rounded corners=1.5pt] (0.98,-3.68) rectangle (2.38,-3.56);   % sole
+    \draw[white, line width=1.6pt] (1.25,-3.47) .. controls (1.65,-3.36) .. (2.08,-3.47);  % side stripe
+    \foreach \lx in {1.68,1.80,1.92}
+      \draw[white, line width=1.1pt] (\lx,{-3.12-0.52*(\lx-1.62)}) -- ++(0.05,-0.11);  % laces
+  \end{scope}
+  \draw[gray!60, line width=0.6pt] (0.4,-3.69) -- (3.0,-3.69);           % floor
+  % ---- stick-figure model
   \draw[seg, black!70] (P0) -- node[left, black] {$L_t$} (SH);
   \draw[seg] (P0) -- node[below, sloped, black, pos=0.45] {$L_{th}$} (KN);
   \draw[seg] (KN) -- node[right, black] {$L_{sh}$} (AN);
@@ -304,10 +349,11 @@ both $0^\circ$ when standing straight and independent of which way the person fa
   \pic[draw, ->, "$\theta_{t}$", angle eccentricity=1.3, angle radius=0.7cm] {angle = RX0--P0--SH};
   \foreach \p in {SH,KN,AN,EL,WR} \node[jnt] at (\p) {};
   \node[circle, fill=orange!80!black, inner sep=2.2pt] at (P0) {};
-  \node[below left=2pt and 2pt, orange!70!black, font=\small] at (P0) {root $\mathbf{p}_0$ (mid-hip)};
-  \node[above left, font=\scriptsize] at (SH) {shoulder};
+  \node[anchor=east, orange!70!black, font=\small] at (-0.7,-0.3) {root $\mathbf{p}_0$ (mid-hip)};
+  \draw[orange!70!black, thin] (-0.72,-0.25) -- (P0);
+  \node[left=8pt, font=\scriptsize] at (SH) {shoulder};
   \node[above right=1pt and 0pt, font=\scriptsize] at (KN) {knee};
-  \node[left=2pt, font=\scriptsize] at (AN) {ankle};
+  \node[left=12pt, font=\scriptsize] at (AN) {ankle};
   \node[right=2pt, font=\scriptsize] at (WR) {wrist};
   % keypoint equation
   \node[draw, rounded corners, fill=gray!8, align=left, font=\small, anchor=west] at (4.2,0.6)
@@ -338,8 +384,8 @@ constant over the frame interval $\Delta t$:
 \end{align}
 $F\in\mathbb{R}^{29\times29}$ is the identity plus $\Delta t$ in the 11 position$\to$velocity couplings,
 and $Q$ is block-diagonal with $\sigma=\sigma_a$ for the root, $\sigma=\sigma_{\ddot\theta}$ for the angles,
-and a slow random walk $Q_{\ell\ell}=\sigma_L^2$ on the lengths. Penn Action gives no frame rate, so
-$\Delta t = 1$ frame and the noise parameters are in px/frame$^2$ and rad/frame$^2$. The prediction is
+and a slow random walk $Q_{\ell\ell}=\sigma_L^2$ on the lengths. Penn Action (dataset) gives no frame rate, so
+$\Delta t = 1$ frame and the noise parameters are in px/frame$^2$ and rad/frame$^2$.\\ The prediction is
 linear and exact:
 \begin{equation}
   \hat{\mathbf{x}}^- = F\hat{\mathbf{x}},\qquad P^- = FPF\T + Q.
@@ -359,7 +405,7 @@ where $\mathcal{C}(j)$ is the list of segments from the root to keypoint $j$
 (e.g.\ ankle: hip half-width, thigh, shank), $\ell_i$ the segment's length state and $a_i$ its angle
 state. The sign $s_i$ is $+$ for left and $-$ for right on the width segments only. Angles enter through
 $\cos$ and $\sin$ and multiply the lengths, so $h(\mathbf{x}) = [\mathbf{k}_1\T,\dots,\mathbf{k}_{12}\T]\T$
-is nonlinear, which is what makes this an EKF problem.
+is nonlinear, \textbf{which is what makes this an EKF problem}.
 
 \subsection{Analytic Jacobian}
 
@@ -375,11 +421,7 @@ Differentiating (\ref{eq:fk}) term by term gives, for every segment $i$ on keypo
   \frac{\partial\mathbf{k}_j}{\partial\ell_i} \mathrel{+}= s_i\,\mathbf{d}_i,\qquad
   \frac{\partial\mathbf{k}_j}{\partial(\text{velocities})} = 0 .
 \end{equation}
-The ``$+=$'' matters: $\theta_t$ appears twice in each shoulder chain (torso along $\mathbf{u}$, half-width
-along $\mathbf{u}_\perp$), so
-$\partial\mathbf{k}_{\text{sh},L}/\partial\theta_t = L_t\,\mathbf{u}_\perp(\theta_t) - W_s\,\mathbf{u}(\theta_t)$.
-$H\in\mathbb{R}^{24\times29}$ is sparse: a keypoint depends only on the root and on the angles and lengths of
-its own chain.
+
 
 \subsection{EKF update with adaptive noise, partial updates and gating}
 \label{sec:update}
@@ -387,26 +429,27 @@ its own chain.
 Every frame runs the loop in Fig.~\ref{fig:loop}. The three robustness steps all decide \emph{which rows}
 of $\mathbf{z}$, $h$, $H$ and $R$ take part in the update, so they share one code path.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
-\begin{tikzpicture}[node distance=4mm and 4mm, >=Stealth, font=\footnotesize,
-    box/.style={draw, rounded corners, align=center, minimum height=12mm, text width=31mm, fill=#1},
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=14mm and 5mm, >=Stealth, font=\small, thick,
+    box/.style={draw, rounded corners, align=center, minimum height=17mm, text width=33mm, fill=#1},
     box/.default=blue!6]
   \node[box=gray!8] (in) {frame $t$\\12 keypoints\\+ confidences};
   \node[box, right=of in] (pred) {\textbf{predict}\\$\hat{\mathbf{x}}^-=F\hat{\mathbf{x}}$\\$P^-=FPF\T+Q$};
   \node[box=orange!10, right=of pred] (mask) {\textbf{1 confidence}\\\textbf{mask}\\keep $j$ if $c_j\ge c_{\min}$};
   \node[box=orange!10, right=of mask] (R) {\textbf{2 adaptive $R$}\\\mbox{\scriptsize $\sigma_j^2=\sigma_0^2(1+\alpha(1-c_j))$}};
-  \node[box=orange!10, below=11mm of R] (gate) {\textbf{3 NIS gate}\\drop $j$ if $\epsilon_j>9.21$};
+  \node[box=orange!10, below=of R] (gate) {\textbf{3 NIS gate}\\drop $j$ if $\epsilon_j>9.21$};
   \node[box, left=of gate] (upd) {\textbf{EKF update}\\kept rows only\\(Joseph form)};
   \node[box=green!8, left=of upd] (con) {\textbf{constrain}\\wrap, clamp lengths,\\joint limits};
   \node[box=gray!8, left=of con] (out) {knee / hip angle\\$\pm$ uncertainty\\$\to$ frame $t{+}1$};
   \draw[->] (in) -- (pred); \draw[->] (pred) -- (mask); \draw[->] (mask) -- (R);
   \draw[->] (R) -- (gate); \draw[->] (gate) -- (upd); \draw[->] (upd) -- (con); \draw[->] (con) -- (out);
-  \node[font=\scriptsize, text=red!70!black, align=center] at ($(mask.south)!0.5!(upd.north)$)
+  \node[font=\footnotesize, text=red!70!black, align=center] at ($(mask.south)!0.5!(upd.north)$)
      {nothing left $\Rightarrow$ skip update, coast on prediction};
-  \node[font=\scriptsize, text=blue!60!black, align=center, above=1mm of mask, xshift=14mm]
+  \node[font=\footnotesize, text=blue!60!black, align=center, above=2mm of mask, xshift=19mm]
      {before linearising: re-initialise limbs lost for $\ge 3$ frames (Sec.~\ref{sec:reinit})};
-\end{tikzpicture}
+\end{tikzpicture}}
 \caption{One EKF frame. Steps 1--3 (orange) choose which keypoint rows enter the update; if none survive,
 the filter coasts on the prediction and its uncertainty grows.}
 \label{fig:loop}
@@ -447,10 +490,7 @@ consistency checks.
 After every update the angles are wrapped, $P$ is symmetrised, lengths are clamped (widths
 $\ge 1$\,px, which allows a side view where the shoulders overlap; other lengths $\ge 5$\,px), and
 \textbf{joint limits} are applied by projection: if $|\wrapop(\theta_{th}-\theta_{sh})| > 165^\circ$
-the shank angle is moved back onto the limit (elbows: $160^\circ$). The projection is sign-agnostic, so
-left- and right-facing clips both work. Projecting the mean while leaving $P$ unchanged is the simplest
-member of the constrained-Kalman-filter family \cite{simon_constraints}; estimate projection and
-truncated-Gaussian methods also update $P$.
+the shank angle is moved back onto the limit (elbows: $160^\circ$).
 
 \subsection{Initialisation by inverse kinematics}
 
@@ -462,7 +502,7 @@ right). Missing pieces fall back to the other side, then to anthropometric ratio
 \cite{winter}. Velocities start at 0, and $P_0$ is diagonal (10\,px, 0.2\,rad, 10\,px/frame, 0.3\,rad/frame,
 5\,px). No update is done on the initialisation frame.
 
-\subsection{Track-loss recovery}
+\subsection{Track-loss recovery (Occlusion issue)}
 \label{sec:reinit}
 
 Experiment E4 exposed a failure of the linearised filter. During a long occlusion the angle variance grows
@@ -481,8 +521,12 @@ is independent of the old belief.
 
 \subsection{Pipeline, data and environment}
 
-Everything is implemented in Python 3.11 with NumPy and SciPy. Ultralytics \cite{ultralytics} is used
-\emph{only} for \texttt{model.predict()}; the filter, baselines, simulator and metrics are our own code.
+\paragraph{Implemented from scratch.} The skeleton model, forward kinematics, analytic Jacobian, EKF
+(predict, adaptive $R$, gating, Joseph update, constraints, re-initialisation), both baselines, the
+simulator and all metrics are written from scratch in \textbf{Python 3.11} using only \textbf{NumPy}.
+No third-party Kalman-filter, robotics or pose-tracking library is used. Outside the filter, SciPy only
+reads Penn Action's \texttt{.mat} label files and gives $\chi^2$ quantiles for the consistency bands, and
+\textbf{Ultralytics} \cite{ultralytics} is used \emph{only} for the detector's \texttt{model.predict()}.
 Experiments ran on a laptop (Intel i5-12450H, NVIDIA RTX 2050).
 
 \paragraph{Dataset.} Penn Action \cite{penn} has 2{,}326 clips with 13 hand-annotated joints per frame and a
@@ -497,9 +541,10 @@ ground truth, on the near-side leg.
 YOLO26x-pose; for every frame the person with the largest box is kept and the keypoints, confidences and
 inference times are cached, so every method sees identical input.
 
-\paragraph{Left/right mirror fix.} While validating the data we found that Penn Action labels the
-person's left and right in the opposite sense to COCO/YOLO in side views. Swapping Penn's L/R joint labels
-lowered the ground-truth vs.\ YOLO keypoint error in \textbf{47 of 47} clips (median $\approx4\times$).
+\paragraph{Dataset finding: left/right mirror fix.} While validating the data we found that Penn
+Action's left/right joint labels are mirrored relative to the COCO convention used by YOLO. Swapping Penn's
+L/R joint labels lowered the ground-truth vs.\ YOLO keypoint error in \textbf{all 47} clips used (median
+$\approx4\times$).
 The loader applies the swap once, so that ``left knee'' means the same physical joint for the ground truth,
 YOLO and the EKF; without it every angle error in Section~\ref{sec:results} would be inflated.
 
@@ -542,56 +587,50 @@ A  = np.eye(sk.N_X) - K @ Hk
 self.P = A @ self.P @ A.T + K @ R @ K.T    # Joseph form
 \end{lstlisting}
 
-\begin{lstlisting}[caption={Track-loss recovery for one limb segment $(a, i, k)$ (\texttt{ekf/ekf.py}).}, label=lst:reinit, basicstyle={\ttfamily\scriptsize\bfseries\color[RGB]{30,30,30}}]
-usable = mask[i] and mask[k]
-lost = max(self.n_rej[i], self.n_rej[k]) >= self.p.reinit_after
-if usable and lost:
-    v = a + sk.VEL_OFFSET
-    self.x[a] = sk.seg_angle(kp[i], kp[k])     # trust the measurement
-    self.x[v] = 0.0
-    for idx in (a, v):                         # forget correlations first ...
-        self.P[idx, :] = 0.0
-        self.P[:, idx] = 0.0
-    self.P[a, a] = sk.P0_STD_ANG ** 2          # ... then restore the variances
-    self.P[v, v] = sk.P0_STD_VANG ** 2
-\end{lstlisting}
-
 \subsection{Verification}
 
-The code has 45 unit tests. 26 test the skeleton: the analytic Jacobian is compared with central finite
-differences, $H_{:,k}\approx[h(\mathbf{x}+\varepsilon\mathbf{e}_k)-h(\mathbf{x}-\varepsilon\mathbf{e}_k)]/2\varepsilon$
-with $\varepsilon=10^{-6}$, on 20 random states (relative tolerance $10^{-5}$); a standing pose must have
-shoulder $<$ hip $<$ knee $<$ ankle in $y$; velocity columns of $H$ are zero; and initialising from keypoints
-generated by a known state must reproduce those keypoints ($h(\mathbf{x}_0)$ inverts the inverse kinematics).
-8 test the filter: the structure of $F$, $Q$ symmetric PSD, adaptive $R$, lower knee error than raw
-keypoints on a synthetic squat, convergence of the length states, NIS consistency when $R$ matches the
-noise, coasting through a dropout, and gating of an outlier. The remaining 11 are known-answer tests of every metric, baseline and of the
-simulator's noise model.
+\paragraph{Skeleton model (26 of 45 unit tests, all passing).} The analytic Jacobian matches central finite
+differences ($\varepsilon=10^{-6}$, relative tolerance $10^{-5}$) on 20 random states, and its velocity
+columns are zero. A standing pose has shoulder $<$ hip $<$ knee $<$ ankle in $y$ ($y$-down convention), the
+inverse-kinematics initialisation reproduces the keypoints of a known state, and wrapping, joint limits and
+length clamping behave as specified.
+
+\paragraph{Filter (8 tests).} $F$ has the right structure, $Q$ is symmetric PSD and adaptive $R$ gives the
+expected $\sigma_j$. On a synthetic squat the EKF beats the raw knee angle, its lengths converge to the truth,
+and NIS/dof $\approx1$ when $R$ matches the noise. It coasts and recovers through a dropout, and gates a
+confident 60\,px knee outlier.
+
+\paragraph{Metrics, baselines and simulator (11 tests).} Every metric reproduces a hand-computed value; the
+moving average is causal and ignores undetected keypoints; the per-keypoint KF smooths and its variance grows
+while coasting; the simulator's noise and constant-velocity truth follow their stated distributions.
 
 \subsection{Baselines and metrics}
 
-Two baselines receive the same cached keypoints and the same threshold $c_{\min}$:
-a \textbf{causal moving average} of each keypoint over the last $w$ frames, and a \textbf{per-keypoint
-linear Kalman filter} (12 independent constant-velocity filters on $[x,y,\dot x,\dot y]$ with the same
-adaptive $R$; no bones). For every method, knee and hip angles are computed from its keypoints with
-(\ref{eq:flexion}) (for the EKF, from $h(\hat{\mathbf{x}})$). Metrics: angle RMSE vs.\ ground truth on
-frames where all compared methods have an estimate (reported as the median over clips, robust to a few
-failed clips), \textbf{jitter} = mean $|$second difference$|$ of the angle (deg/frame$^2$),
-\textbf{lag} = shift maximising the cross-correlation with the ground truth, keypoint RMSE in \% of the
-person's box height, \textbf{bone-length CV} (std/mean of thigh and shank length, \%), coverage, and
-runtime. In simulation the full state is known, so filter consistency is checked with the normalised
-estimation error squared (NEES) $\mathbf{e}\T P^{-1}\mathbf{e}$, $\mathbf{e}=\hat{\mathbf{x}}-\mathbf{x}$,
-and the NIS.
+\paragraph{Baselines.} Both get the same cached keypoints and threshold $c_{\min}$: a \textbf{causal moving
+average} over the last $w$ frames, and a \textbf{per-keypoint linear KF} (12 independent constant-velocity
+filters on $[x,y,\dot x,\dot y]$ with the same adaptive $R$, but no bones). Angles for every method come from
+its keypoints via (\ref{eq:flexion}); for the EKF from $h(\hat{\mathbf{x}})$.
+
+\paragraph{Metrics.}
+\begin{itemize}[itemsep=1pt]
+    \item \textbf{Angle RMSE} ($^\circ$): vs.\ ground truth on frames where all methods have an estimate;
+          median over clips.
+    \item \textbf{Jitter} (deg/frame$^2$): mean $|$second difference$|$ of the angle; lower is smoother.
+    \item \textbf{Lag} (frames): shift that maximises cross-correlation with the ground truth.
+    \item \textbf{Bone-length CV} (\%): std/mean of thigh and shank length; 0 for rigid bones.
+    \item \textbf{Keypoint RMSE} (\% of box height), \textbf{coverage} (\%) and \textbf{runtime} (ms/frame).
+    \item \textbf{NEES} $\mathbf{e}\T P^{-1}\mathbf{e}$, $\mathbf{e}=\hat{\mathbf{x}}-\mathbf{x}$, and
+          \textbf{NIS} (simulation only): check whether $P$ is honest.
+\end{itemize}
 
 \subsection{Simulator}
 
-Synthetic side-view squats with random body size, depth and facing direction are generated in the same
-29-D state space (the ankle is fixed on the floor and the root solved from it). A synthetic detector draws a
-confidence $c_j\sim\text{Beta}(8,1.5)$ per keypoint, adds Gaussian noise with
-$\sigma_j=3\sqrt{1+4(1-c_j)}$\,px to $h(\mathbf{x})$, and can add dropouts, occlusion windows and confident
-outliers (40\,px jumps with $c\ge0.8$). The simulated noise has the same form as the adaptive $R$, so the
-simulation is a best case for that component; the real-data ablation is the honest test.
+Synthetic side-view squats (random body size, depth and facing direction) are generated in the same 29-D state
+space. A synthetic detector draws $c_j\sim\text{Beta}(8,1.5)$, adds noise $\sigma_j=3\sqrt{1+4(1-c_j)}$\,px
+to $h(\mathbf{x})$, and can add dropouts, occlusions and confident 40\,px outliers. This noise has the same
+form as the adaptive $R$, so the real-data ablation is its honest test.
 
+\clearpage
 % ============================================================================ 4 RESULTS
 \section{Results}
 \label{sec:results}
@@ -599,26 +638,28 @@ simulation is a best case for that component; the real-data ablation is the hone
 \subsection{Simulation (known ground truth)}
 
 \paragraph{E1: tracking a squat.} Fig.~\ref{fig:e1} shows one synthetic squat. The EKF follows the true
-knee angle with RMSE $4.7^\circ$ (raw keypoints: $8.1^\circ$) and the hip with $2.8^\circ$ (raw $6.8^\circ$),
-and the truth lies inside the $\pm2\sigma$ band in 99\% of frames.
+knee and hip angles closely, with about half the error of angles taken from the raw keypoints, and the truth
+stays inside its $\pm2\sigma$ band in 99\% of frames.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.86\linewidth]{e1_sim_angles.pdf}
+\includegraphics[width=\linewidth]{e1_sim_angles.pdf}
 \caption{E1 (simulation): knee (top) and hip (bottom) flexion. Grey dots: angles from raw noisy keypoints;
 blue: EKF with its $\pm2\sigma$ band; dashed: truth. The band is wide at start-up and in the standing phase,
 where the knee angle is least observable.}
 \label{fig:e1}
 \end{figure}
-
 \paragraph{E2: process vs.\ measurement noise.} Fig.~\ref{fig:e2sim} sweeps the angular acceleration noise
-$\sigma_{\ddot\theta}$ against $\sigma_0$ (10 seeds each). Trusting the motion model (small
-$\sigma_{\ddot\theta}$, large $\sigma_0$) gives the smoothest angles (jitter 2.42) but lags and cuts the
-bottom of the squat (RMSE $11.2^\circ$); trusting the detector gives low lag but high jitter (7.93). The
-RMSE optimum ($4.33^\circ$) lies at the true noise level $\sigma_0\approx4$ and the middle
-$\sigma_{\ddot\theta}=0.03$.
+$\sigma_{\ddot\theta}$ against the measurement noise $\sigma_0$ (10 seeds each).
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{Trusting the motion model} (small $\sigma_{\ddot\theta}$, large $\sigma_0$) gives the
+          smoothest angles, but they lag and cut off the bottom of the squat.
+    \item \textbf{Trusting the detector} (large $\sigma_{\ddot\theta}$, small $\sigma_0$) follows quickly
+          but passes the detector's jitter through.
+    \item \textbf{The lowest error} lies in between, at the true measurement-noise level.
+\end{itemize}
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.82\linewidth]{e2_sim_sweep.pdf}
 \caption{E2 (simulation): knee RMSE (left) and jitter (right) over a $3\times3$ grid of process noise
@@ -627,15 +668,18 @@ different directions.}
 \label{fig:e2sim}
 \end{figure}
 
-\paragraph{E3: is the uncertainty honest?} If $P$ is correct, the NEES of a consistent filter follows
-$\chi^2_{29}$ and the NIS $\chi^2_{\text{dof}}$. The average of $N$ independent runs then satisfies
-$N\bar\epsilon\sim\chi^2_{N n}$, which gives the 95\% band in Fig.~\ref{fig:e3}. With truth generated
-\emph{from} the filter's own model (``matched''), both statistics sit on 1 (Table~\ref{tab:e3}) and inside the
-band in 93--94\% of frames, as expected for a 95\% band: the implementation of $F$, $Q$, $h$, $H$ and the
-update is consistent. On the squat motion with default $Q$, $R$ the normalised values are about 0.5:
-the filter is \emph{conservative}, i.e.\ its reported uncertainty is larger than its actual error.
+\paragraph{E3: is the uncertainty honest?} If $P$ is correct, NEES divided by the state dimension and NIS
+divided by its degrees of freedom both average to 1. Averaging $N$ independent runs gives the 95\% band in
+Fig.~\ref{fig:e3}, since $N\bar\epsilon\sim\chi^2_{Nn}$.
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{Matched model} (truth generated \emph{from} the filter's own model): NEES/dim $=1.03$ and
+          NIS/dof $=0.99$, inside the band in about 94\% of frames (Table~\ref{tab:e3}). The implementation of
+          $F$, $Q$, $h$, $H$ and the update is consistent.
+    \item \textbf{Squat motion} (model mismatch): both values are about 0.5, so the filter is
+          \emph{conservative}: it reports more uncertainty than its actual error.
+\end{itemize}
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.88\linewidth]{e3_consistency.pdf}
 \caption{E3 (simulation, 30 Monte-Carlo runs): average NEES/29 (left) and NIS/dof (right) against the
@@ -643,7 +687,7 @@ $\chi^2$ 95\% band (green). Blue: truth from the filter's own model; orange: squ
 \label{fig:e3}
 \end{figure}
 
-\begin{table}[t]
+\begin{table}[H]
 \centering\small
 \caption{E3: filter consistency, 30 Monte-Carlo runs (ideal: 1.00 and $\approx95\%$).}
 \label{tab:e3}
@@ -658,13 +702,17 @@ Squat, default $Q$/$R$               & 0.45 & 0.54 & 0.0  & 0.0\\
 \end{table}
 
 \paragraph{E4: occlusion and recovery.} Knees and ankles are hidden for 10, 20 or 30 frames
-(Fig.~\ref{fig:e4}, Table~\ref{tab:e4}). During the gap the EKF coasts and its $2\sigma$ grows from
-$10^\circ$ to $115$--$505^\circ$, correctly reporting that it no longer knows the knee angle. Without
-re-initialisation the returning keypoints are gated as outliers and the error stays high ($114^\circ$
-20 frames after a 20-frame gap). With track-loss recovery the knee is re-acquired within a few frames
-(error $4.6^\circ$/$22.8^\circ$/$26.2^\circ$ averaged over the 20 frames after the gap).
+(Fig.~\ref{fig:e4}, Table~\ref{tab:e4}).
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{During the gap} the EKF coasts and its $2\sigma$ grows steadily, correctly reporting that
+          it no longer knows the knee angle.
+    \item \textbf{Without re-initialisation} the returning keypoints are gated as outliers and the knee is
+          never re-acquired: after a 20-frame gap the error is still $114^\circ$.
+    \item \textbf{With track-loss recovery} the knee is re-acquired within a few frames, and the same error
+          drops to $23^\circ$.
+\end{itemize}
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{e4_occlusion.pdf}
 \caption{E4 (simulation, mean of 10 runs): knee error (top) and the EKF's $2\sigma$ (bottom, log scale)
@@ -673,7 +721,7 @@ filter does not recover; solid: with it, the error drops back as soon as the key
 \label{fig:e4}
 \end{figure}
 
-\begin{table}[t]
+\begin{table}[H]
 \centering\small
 \caption{E4: mean knee error ($^\circ$) during the gap and over the 20 frames after it.}
 \label{tab:e4}
@@ -691,12 +739,12 @@ Gap & EKF & per-kp KF & EKF & EKF no re-init & per-kp KF & at gap end\\
 \end{tabular}}
 \end{table}
 
-\paragraph{E5 (simulation): ablation.} On a ``realistic'' scenario (lower confidences, 5\% missed
-keypoints, 4\% confident 40\,px outliers; 20 seeds), the full EKF has the lowest error of all methods
-(Table~\ref{tab:e5sim}): $5.1^\circ$ knee vs.\ $7.0^\circ$ for the per-keypoint KF and $9.6^\circ$ raw.
-Removing adaptive $R$ or gating each costs accuracy, and removing both costs most.
+\paragraph{E5 (simulation): ablation.} The ``realistic'' scenario adds lower confidences, missed
+keypoints and confident outliers (20 seeds). The full EKF has the lowest error of all methods
+(Table~\ref{tab:e5sim}): $5.1^\circ$ knee RMSE, against $9.6^\circ$ for raw keypoints. Removing adaptive $R$
+or gating each costs accuracy, and removing both costs most.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering\small
 \caption{E5 (simulation, 20 seeds): ablation on the realistic scenario.}
 \label{tab:e5sim}
@@ -717,27 +765,30 @@ EKF, fixed $R$ + no gating & 5.90 & 4.00 & 5.93\\
 
 \subsection{Real data (Penn Action, 37 test clips)}
 
-\paragraph{Tuning.} $\sigma_{\ddot\theta}$ and $\sigma_0$ were grid-searched on the 10 tuning clips
-(Fig.~\ref{fig:e2real}), minimising the median over clips of the mean knee/hip RMSE. The optimum is
-$\sigma_{\ddot\theta}=0.02$\,rad/frame$^2$ and $\sigma_0=16$\,px, larger than the $\approx12$\,px typical
-YOLO26n keypoint error (Section~\ref{sec:discussion}). The moving-average window ($w=7$) and the
-per-keypoint KF's acceleration noise ($0.5$\,px/frame$^2$) were tuned the same way.
+\paragraph{Tuning.} $\sigma_{\ddot\theta}$ and $\sigma_0$ were grid-searched on the 10 tuning clips only
+(Fig.~\ref{fig:e2real}), minimising the median knee/hip RMSE. The chosen values are
+$\sigma_{\ddot\theta}=0.02$\,rad/frame$^2$ and $\sigma_0=16$\,px. The baselines' parameters were tuned the
+same way.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.5\linewidth]{e2_real_tune.pdf}
-\caption{E2 (real, tuning clips only): median clip RMSE over the EKF parameter grid.}
+\caption{Parameter tuning (real data, tuning clips only): median clip RMSE over the EKF parameter grid.}
 \label{fig:e2real}
 \end{figure}
 
 \paragraph{E6: comparison of methods.} Table~\ref{tab:e6} and Fig.~\ref{fig:e6} compare all methods on
-the test set. The EKF gives the smoothest angles among methods with a body-level output (knee jitter 1.30
-vs.\ 5.41 raw), the most rigid bones (CV 4.8\% vs.\ 11.1\%), near-complete coverage (99.9\%), negligible
-lag (0.24 frames) and a calibrated uncertainty band, at 0.6\,ms per frame. Its angle RMSE is higher than
-raw YOLO; the cause is analysed in Section~\ref{sec:limits}, where the last row of the table is also
-explained.
+the test set. Compared with raw YOLO, the EKF gives:
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{$4\times$ smoother angles} (knee jitter 1.30 vs.\ 5.41);
+    \item \textbf{rigid bones}: bone-length variation more than halved, the lowest of all methods;
+    \item \textbf{continuous output} in 99.9\% of frames with negligible lag, plus an uncertainty band;
+    \item all this at under 1\,ms per frame.
+\end{itemize}
+Its angle RMSE is higher than raw YOLO's; the cause, and the last row of the table, are explained in
+Section~\ref{sec:limits}.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering\small
 \caption{E6: methods on the 37 test clips (YOLO26n keypoints). RMSE: median over clips; other columns:
 mean over clips. Ground-truth labels themselves have jitter 2.36 and bone CV 9.31\%.}
@@ -758,7 +809,7 @@ EKF, occluded leg masked & 9.35  & 10.57 & 1.23 & 3.74 & 0.32 & 99.9 & 0.55\\
 \end{tabular}}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.9\linewidth]{e6_trace.pdf}
 \caption{E6: near-side knee angle on test clip 1725 (163 frames). The EKF (blue) is smooth and its
@@ -766,16 +817,18 @@ $\pm2\sigma$ band contains the ground truth (black) throughout.}
 \label{fig:e6}
 \end{figure}
 
-\paragraph{E5 (real): ablation.} Table~\ref{tab:e5real} repeats the ablation on real data. Adaptive $R$
-helps on every metric (knee median $13.27\to12.86^\circ$, jitter $1.65\to1.30$, bone CV
-$5.14\to4.79\%$). Gating fires on only 1.6\% of keypoints, and joint limits are never active in squats,
-so both leave the medians unchanged. Re-initialisation fires 2.6 times per clip and costs a little
-smoothness (jitter 1.00 without it) in exchange for the recovery shown in E4. The real NIS/dof is 0.24:
-the tuned $R$ is conservative.
+\paragraph{E7: ablation on real data.} Table~\ref{tab:e5real} repeats the E5 ablation on real data.
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{Adaptive $R$} improves every metric: accuracy, smoothness and bone rigidity.
+    \item \textbf{Gating and joint limits} rarely trigger on these squats (gating drops only 1.6\% of
+          keypoints), so they leave the medians unchanged.
+    \item \textbf{Re-initialisation} costs a little smoothness in exchange for the occlusion recovery
+          shown in E4.
+\end{itemize}
 
-\begin{table}[t]
+\begin{table}[H]
 \centering\small
-\caption{E5 (real, 37 test clips): EKF ablation.}
+\caption{E7 (real, 37 test clips): EKF ablation.}
 \label{tab:e5real}
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{lccccc}
@@ -791,16 +844,15 @@ EKF, fixed $R$ + no gating    & 13.27 & 12.36 & 1.47 & 1.87 & 5.27\\
 \bottomrule
 \end{tabular}}
 \end{table}
+\newpage
+\paragraph{E8: edge deployment.} Table~\ref{tab:e7} compares the nano and extra-large detectors with and
+without the EKF. The filter adds only $\approx0.5$\,ms per frame. \textbf{YOLO26n + EKF produces smoother
+angles and more rigid bones than YOLO26x alone, at about one ninth of the compute} ($\approx160$ vs.\ 17
+frames per second). YOLO26x alone remains the most accurate in angle RMSE.
 
-\paragraph{E7: edge deployment.} Table~\ref{tab:e7} compares the nano and extra-large detectors with and
-without the EKF. The filter adds $\approx0.5$\,ms to a 5.7\,ms detector. \textbf{YOLO26n + EKF produces
-smoother angles than YOLO26x alone} (jitter 1.30 vs.\ 2.68) at about one ninth of the compute
-(6.2 vs.\ 57.9\,ms/frame, i.e.\ $\approx160$ vs.\ 17 frames per second) and with more rigid bones
-(CV 4.8\% vs.\ 9.0\%); YOLO26x alone remains the most accurate in angle RMSE.
-
-\begin{table}[t]
+\begin{table}[H]
 \centering\small
-\caption{E7: accuracy vs.\ runtime (RTX 2050 laptop GPU; times per frame).}
+\caption{E8: accuracy vs.\ runtime (RTX 2050 laptop GPU; times per frame).}
 \label{tab:e7}
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{lcccccc}
@@ -815,22 +867,22 @@ YOLO26x + EKF   & 13.45 & \textbf{0.81} & \textbf{4.56} & 57.91 & 0.51 & 58.42\\
 \end{tabular}}
 \end{table}
 
-\paragraph{E8: bone-length self-calibration.} Fig.~\ref{fig:e8} shows the thigh and shank length implied
-by each method on clip 1725. Raw and per-keypoint-KF lengths jump by several pixels between frames; the EKF
-estimates a slowly varying length with an uncertainty band. The ground-truth curve itself varies from 55 to
-85\,px within the clip, because the thigh rotates towards and away from the camera (foreshortening).
+\paragraph{E9: bone-length self-calibration.} Fig.~\ref{fig:e8} shows the thigh and shank length implied
+by each method on one clip. Raw and per-keypoint-KF lengths jump between frames; the EKF estimates a slowly
+varying length with an uncertainty band. Even the ground-truth length changes within the clip, because the
+thigh rotates towards and away from the camera (foreshortening).
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.9\linewidth]{e8_bone_lengths.pdf}
-\caption{E8: thigh (left) and shank (right) length on clip 1725, from the ground truth, raw YOLO26n, the
+\caption{E9: thigh (left) and shank (right) length on clip 1725, from the ground truth, raw YOLO26n, the
 per-keypoint KF, and the EKF's length state $\pm2\sigma$.}
 \label{fig:e8}
 \end{figure}
-
+\newpage
 \paragraph{E10: qualitative result.} Fig.~\ref{fig:overlay} overlays the skeletons on four frames.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{e10_overlay.pdf}
 \caption{E10: clip 1725, ground truth (green), raw YOLO26n (red), EKF (blue) and EKF with the occluded leg
@@ -862,7 +914,7 @@ model the NEES and NIS are at their theoretical values. Under model mismatch (a 
 constant-velocity motion) the filter errs on the safe side, reporting more uncertainty than it has, rather
 than becoming overconfident.
 
-\paragraph{Linearisation limits and creativity.} E4 showed where the EKF's local linearisation breaks: after
+\paragraph{Linearisation limits.} E4 showed where the EKF's local linearisation breaks: after
 a long coast the uncertainty is not Gaussian in the angles and the gate wrongly rejects the true
 measurement. The re-initialisation rule is a targeted, cheap fix that turns a permanent failure into a
 recovery within a few frames. A UKF \cite{julier} or particle filter would represent the curved
@@ -880,7 +932,7 @@ uncertainty directly, at higher cost.
           ($9.60^\circ$) in Table~\ref{tab:e6}. Masking the far knee and ankle (side taken from the camera
           view label) restores the accuracy to $9.35^\circ$ while keeping the smoothness and rigidity.
     \item \textbf{Planar model, constant lengths.} The model is 2D. When a limb rotates out of the image
-          plane its projected length changes (E8; ground truth bone CV 9.3\%), which a constant-length model
+          plane its projected length changes (E9; ground truth bone CV 9.3\%), which a constant-length model
           can only follow slowly through the length random walk.
     \item \textbf{Heuristic recovery.} Re-initialisation discards the limb's history and uses a fixed
           threshold of 3 frames; it is not derived from a probabilistic model.
@@ -900,7 +952,7 @@ $9.60^\circ$ and $10.11^\circ$, with jitter 0.68. As the lag was chosen on the t
 indicative only and the lag should be tuned on the tuning set. Other directions are separate left and right
 bone lengths, a 3D skeleton with a camera model, and a UKF or interacting multiple-model filter for
 non-squat motions.
-
+\newpage
 % ============================================================================ 6 CONCLUSION
 \section{Conclusion}
 
@@ -914,7 +966,7 @@ squats it produces $4\times$ smoother joint angles, more than halves bone-length
 estimate in 99.9\% of frames and costs about 0.5\,ms per frame, so a nano detector with the EKF gives
 smoother angles than a nine-times larger detector. The analysis identified the remaining error source,
 confident detections of the hidden leg, and a concrete path to remove it.
-
+\\
 % ============================================================================ REFERENCES
 \begin{thebibliography}{99}
 \small
