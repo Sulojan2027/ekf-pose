@@ -9,9 +9,36 @@ frame** on a laptop CPU.
 Evaluated on side-view squats from the [Penn Action](https://dreamdragon.github.io/PennAction/)
 dataset, and on a simulator with known ground truth.
 
+## Demo
+
+Raw YOLO26n keypoints (left, red) against the EKF (right, blue) on real Penn Action squats.
+The plot underneath shows the knee angle: ground truth (grey), raw YOLO (red), and the EKF with its ±2σ band (blue).
+
 <p align="center">
-  <img src="report/figures/e10_overlay.png" width="90%" alt="GT, raw YOLO and EKF skeletons overlaid on squat frames">
+  <img src="assets/clip1679_ekf_vs_yolo.gif" width="90%" alt="Clip 1679: raw YOLO knee angle collapses twice while the EKF stays on the ground truth">
 </p>
+
+**Detector failures are filtered out.** In clip 1679, raw YOLO's knee angle collapses from about 120° to near 0° twice, while the EKF stays on the ground truth. Knee RMSE drops from 26.1° to 8.8°, and jitter from 11.7 to 0.7 deg/frame².
+
+<p align="center">
+  <img src="assets/clip1860_ekf_vs_yolo.gif" width="90%" alt="Clip 1860: raw YOLO under-reads squat depth, EKF follows ground truth">
+</p>
+
+**Squat depth is tracked correctly.** In clip 1860, raw YOLO under-reads the bottom of the squat by 30–40°, while the EKF follows the true angle. Knee RMSE drops from 31.9° to 11.0°, and jitter from 8.4 to 0.6.
+
+<p align="center">
+  <img src="assets/clip1860_dropout.gif" width="90%" alt="Clip 1860 with a simulated detector dropout: EKF coasts with growing uncertainty ellipses">
+</p>
+
+**The EKF keeps tracking when the detector drops out.** The detector output is blanked for 25 frames (a *simulated* dropout). The EKF coasts on its motion model, its keypoint-uncertainty ellipses (2σ) grow, and it snaps back onto the ground truth when detections return.
+
+<p align="center">
+  <img src="assets/clip1808_ekf_vs_yolo.gif" width="90%" alt="Clip 1808: smooth EKF knee angle on a clean side-view squat">
+</p>
+
+**Clean input becomes smoother still.** Even when YOLO is already accurate (clip 1808), the EKF cuts jitter from 2.5 to 0.4 and lowers knee RMSE from 7.4° to 5.4°.
+
+In these demos the EKF ignores the self-occluded far leg, as discussed under [Limitations](#limitations). Numbers are per clip; test-set averages are in [Results](#results).
 
 ## Highlights
 
@@ -114,6 +141,11 @@ Simulated ablation on the "realistic" scenario (20 seeds: noisy confidences, 5% 
 
 ## Limitations
 
+<p align="center">
+  <img src="report/figures/e10_overlay.png" width="90%" alt="GT, raw YOLO and EKF skeletons overlaid on squat frames">
+</p>
+<p align="center"><em>Clip 1725: ground truth (green), raw YOLO26n (red), EKF (blue), and EKF with the occluded far leg ignored (purple). Note the raw far leg in frames 35 and 55.</em></p>
+
 - **Self-occluded far leg.** In side views YOLO reports the hidden far leg with about 95% confidence, though the positions are guesses. The EKF shares bone lengths between left and right, so these guesses corrupt the near leg. That is why the plain EKF's knee RMSE (12.86°) is above raw YOLO's (9.60°).
   - Masking the occluded leg restores accuracy (9.35°).
   - Which leg is hidden can be read from the person's facing direction in the YOLO output; this matched Penn's camera label in 47/47 clips.
@@ -138,6 +170,7 @@ experiments/    exp_sim.py (E1–E5), exp_real.py (tune, E5–E8, E10)
 tools/          inspect_penn.py (dataset index)
 tests/          Jacobian, EKF and metric tests
 report/figures/ generated figures
+assets/         demo GIFs used in this README
 ```
 
 ## Reproducing
